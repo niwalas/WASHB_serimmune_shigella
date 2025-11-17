@@ -1,0 +1,879 @@
+---
+title: "5-shigella_age_motif.rmd"
+author: "Niko Walas"
+date: "2024-10-21"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+# Summary
+
+This file plots meanIWAS as determined by the IMUNE across motif regions as determined by the SERA pathway. It exports what is figure 4 for the manuscript. 
+
+# Read in and format files
+```{r preamble, echo = FALSE, message = FALSE}
+#----------------------------------
+# load the config file
+#----------------------------------
+library(here)
+library(patchwork)
+source(here("R/0-shig-config.r"))
+# Read in files 
+#----------------------------------
+# load motif data
+#----------------------------------
+shig_motif <- read_csv(here("data", "motif_data.csv"))
+
+#----------------------------------
+# load metadata
+#----------------------------------
+metadata <- read_csv(here("data","washb-serimmune-metadata-230616.csv")) %>% pivot_longer(cols = 2:4, names_to = "timepoint", values_to = "SampleID")
+metadata2 <- metadata %>% select(SampleID, arm, sex, 
+                                 birthord_cat, momage, 
+                                 agedays_base, agedays_mid, 
+                                 agedays_end) 
+colnames(metadata2) <- tolower(colnames(metadata2))
+
+#----------------------------------
+# visit gain and loss of mean IWAS 
+#----------------------------------
+ipaA <- read_csv(here("data/shigella_ipaA_Q3YTQ5_IWAS_value_changes.csv"))
+colnames(ipaA) <- tolower(colnames(ipaA)) 
+ipaA <- ipaA %>% mutate(direction_change2 = ifelse(direction_change_iwas == "1->2", 
+                                                   "3 to 14 months", 
+                                                   "14 to 28 months"))
+
+ipaB <- read_csv(here("data/shigella_ipaB_Q3YTQ2_IWAS_value_changes.csv"))
+colnames(ipaB) <- tolower(colnames(ipaB))
+ipaB <- ipaB %>% mutate(direction_change2 = ifelse(direction_change_iwas == "1->2", 
+                                                   "3 to 14 months", 
+                                                   "14 to 28 months"))
+
+ipaC <- read_csv(here("data/shigella_ipaC_Q3YTQ3_IWAS_value_changes.csv"))
+colnames(ipaC) <- tolower(colnames(ipaC))
+ipaC <- ipaC %>% mutate(direction_change2 = ifelse(direction_change_iwas == "1->2", 
+                                                   "3 to 14 months", 
+                                                   "14 to 28 months"))
+
+ipaD <- read_csv(here("data/shigella_ipaD_Q3YTQ4_IWAS_value_changes.csv"))
+colnames(ipaD) <- tolower(colnames(ipaD))
+ipaD <- ipaD %>% mutate(direction_change2 = ifelse(direction_change_iwas == "1->2", 
+                                                   "3 to 14 months", 
+                                                   "14 to 28 months"))
+
+ipaH3 <- read_csv(here("data/shigella_ipaH3_Q3Z2I2_IWAS_value_changes.csv"))
+colnames(ipaH3) <- tolower(colnames(ipaH3))
+ipaH3 <- ipaH3 %>% mutate(direction_change2 = ifelse(direction_change_iwas == "1->2", 
+                                                   "3 to 14 months", 
+                                                   "14 to 28 months"))
+
+#----------------------------------
+# IWAS value per visit and amino acid sit 
+#----------------------------------
+#ipaA
+ipaA_raw <- read_csv(here("data/shigella_ipaA_Q3YTQ5.csv")) %>% mutate(timepoint = substr(SampleID, 6, 6)) %>% mutate(visit = case_when(timepoint == "B" ~ "1", 
+                                                                        timepoint == "M" ~ "2", 
+                                                                        timepoint == "E" ~ "3"), 
+                                                     visit_2 = case_when(visit == "1" ~ "3 months",
+                                                                         visit == "2" ~ "14 months",
+                                                                         TRUE ~ "28 months"))
+ipaA_raw$visit_2 <- factor(ipaA_raw$visit_2, levels = c("3 months", 
+                                                        "14 months", 
+                                                        "28 months"))
+colnames(ipaA_raw) <- tolower(colnames(ipaA_raw))
+
+#ipaB
+ipaB_raw <- read_csv(here("data/shigella_ipaB_Q3YTQ2.csv")) %>% mutate(timepoint = substr(SampleID, 6, 6)) %>% mutate(visit = case_when(timepoint == "B" ~ "1", 
+                                                                        timepoint == "M" ~ "2", 
+                                                                        timepoint == "E" ~ "3"), 
+                                                     visit_2 = case_when(visit == "1" ~ "3 months",
+                                                                         visit == "2" ~ "14 months",
+                                                                         TRUE ~ "28 months"))
+ipaB_raw$visit_2 <- factor(ipaB_raw$visit_2, levels = c("3 months", 
+                                                        "14 months", 
+                                                        "28 months"))
+colnames(ipaB_raw) <- tolower(colnames(ipaB_raw))
+
+#ipaC 
+ipaC_raw <- read_csv(here("data/shigella_ipaC_Q3YTQ3.csv")) %>% mutate(timepoint = substr(SampleID, 6, 6)) %>% mutate(visit = case_when(timepoint == "B" ~ "1", 
+                                                                        timepoint == "M" ~ "2", 
+                                                                        timepoint == "E" ~ "3"), 
+                                                     visit_2 = case_when(visit == "1" ~ "3 months",
+                                                                         visit == "2" ~ "14 months",
+                                                                         TRUE ~ "28 months"))
+ipaC_raw$visit_2 <- factor(ipaC_raw$visit_2, levels = c("3 months", 
+                                                        "14 months", 
+                                                        "28 months"))
+colnames(ipaC_raw) <- tolower(colnames(ipaC_raw))
+
+#ipaD 
+ipaD_raw <- read_csv(here("data/shigella_ipaD_Q3YTQ4.csv")) %>% mutate(timepoint = substr(SampleID, 6, 6)) %>% mutate(visit = case_when(timepoint == "B" ~ "1", 
+                                                                        timepoint == "M" ~ "2", 
+                                                                        timepoint == "E" ~ "3"), 
+                                                     visit_2 = case_when(visit == "1" ~ "3 months",
+                                                                         visit == "2" ~ "14 months",
+                                                                         TRUE ~ "28 months"))
+ipaD_raw$visit_2 <- factor(ipaD_raw$visit_2, levels = c("3 months", 
+                                                        "14 months", 
+                                                        "28 months"))
+colnames(ipaD_raw) <- tolower(colnames(ipaD_raw))
+
+#ipaH3 
+ipaH3_raw <- read_csv(here("data/shigella_ipaH3_Q3Z2I2.csv")) %>% mutate(timepoint = substr(SampleID, 6, 6)) %>% mutate(visit = case_when(timepoint == "B" ~ "1", 
+                                                                        timepoint == "M" ~ "2", 
+                                                                        timepoint == "E" ~ "3"), 
+                                                     visit_2 = case_when(visit == "1" ~ "3 months",
+                                                                         visit == "2" ~ "14 months",
+                                                                         TRUE ~ "28 months"))
+ipaH3_raw$visit_2 <- factor(ipaH3_raw$visit_2, levels = c("3 months", 
+                                                        "14 months", 
+                                                        "28 months"))
+colnames(ipaH3_raw) <- tolower(colnames(ipaD_raw))
+```
+
+# Reformat motif data to make workable dataframes
+```{r}
+# 1) merge with the metadata
+df1 <- merge(shig_motif, metadata2, by = "sampleid") 
+
+df1 <- df1 %>% mutate(age_days = case_when(str_detect(sampleid, "B") ~ as.numeric(agedays_base), 
+                                      str_detect(sampleid, "M") ~ as.numeric(agedays_mid), 
+                                      str_detect(sampleid, "E") ~ as.numeric(agedays_end), 
+                                      TRUE ~ NA_real_), 
+                      timepoint = substr(sampleid, 6, 6), 
+                      visit = case_when(timepoint == "B" ~ "1", 
+                                        timepoint == "M" ~ "2", 
+                                        timepoint == "E" ~ "3"),
+                      visit_2 = case_when(visit == "1" ~ "3 months",
+                                          visit == "2" ~ "14 months",
+                                          TRUE ~ "28 months")) %>% 
+  select(-agedays_base, -agedays_mid, -agedays_end)
+```
+
+# 1) IpaA 
+
+## Fig 1) IpaA Iwas across three visits
+```{r}
+df_a <- ipaA_raw %>% group_by(visit_2, aminoacidposition) %>% summarise(mean_IWAS = mean(iwasvalue_norm))
+rectangles <- data.frame(xmin = c(293, 312), #starts for family 1 and family 3
+                         xmax = c(303, 321), #stops for family 1 and family 3
+                         ymin = c(-1, -1), 
+                         ymax = c(4, 4), 
+                         fill = "lightgrey")
+  
+  
+pa <- ggplot(df_a, aes(x = aminoacidposition, y = mean_IWAS, group = visit_2, color = visit_2)) +
+  geom_line() + 
+  scale_color_manual(values = c("3 months" = "#E69F00", 
+                               "14 months" = "#56B4E9", 
+                               "28 months" = "#009E73")) +
+  theme_minimal(base_size = 14) +
+  labs(x = "",
+       y = "", 
+       title = "IpaA", 
+       color = "") + 
+  scale_x_continuous(limits = c(0, 645), expand = c(0,0), n.breaks = 15) + 
+  scale_y_continuous(limits = c(-1, 4), expand = c(0,0)) + 
+  theme(legend.position = c(0.5, 1.1), 
+        legend.direction = "horizontal",
+        panel.grid.major.y = element_blank(), 
+        text = element_text(size = 20), 
+        axis.text.x = element_text(angle = 45)) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") 
+pa
+```
+## Fig 2) IpaA gain/loss 
+```{r}
+#mutate df so that if it is a positive value for 1 to 2; it is recoded to 0; if it is a negative value for 2 to 3 it is a 0 (baselines)
+ipaA$mean_iwas_change <- as.numeric(ipaA$mean_iwas_change)
+ipaA_recoded <- ipaA %>% mutate(mean_iwas_change_2 = 
+                                  ifelse((direction_change_iwas == "1->2" & mean_iwas_change > 0) |
+                                          (direction_change_iwas == "2->3" & mean_iwas_change < 0), 
+                                         0, 
+                                         mean_iwas_change))
+
+#set decimals for y-axis so it matches the other gain/loss figures
+scaleFUN <- function(x) sprintf("%.2f", x)
+
+range(ipaA_recoded$mean_iwas_change_2)
+pa2 <- ggplot(ipaA_recoded, aes(x=aminoacidposition, y=mean_iwas_change_2, 
+                               groups = factor(direction_change2, 
+                                                levels = c("3 to 14 months", "14 to 28 months")), 
+                                fill = factor(direction_change2, 
+                                              levels = c("3 to 14 months", "14 to 28 months")))) + 
+  #annotate(geom = "rect", xmin = 293, xmax = 303, ymin = -1, ymax = 4, alpha = 0.5, color = NA, fill = "lightgrey") +
+  #annotate(geom = "rect", xmin = 10, xmax = 15, ymin = -1, ymax = 4, alpha = 0.5, color = NA, fill = "lightgrey") +
+  #annotate(geom = "rect", xmin = 312, xmax = 321, ymin = -1, ymax = 4, alpha = 0.5, color = NA, fill = "lightgrey") +
+  geom_area() + 
+  theme_minimal(base_size = 14) +
+  scale_x_continuous(limits = c(0, 645), expand = c(0,0), n.breaks = 15) + 
+  scale_y_continuous(limits = c(-4, 0.5), expand = c(0,0), labels = scaleFUN) +
+  labs(x = "",
+       y = "", 
+       title = "IpaA", 
+       fill = "") +
+  scale_fill_manual(values = c("3 to 14 months" = "#E69F00", 
+                               "14 to 28 months" = "#009E73")) +
+  theme(legend.position = c(0.5, 1.1), 
+        legend.direction = "horizontal",
+        text = element_text(size = 20),
+        panel.grid.major.y = element_blank(),  # Remove major y-axis gridlines
+    panel.grid.minor.y = element_blank(), 
+    legend.title = element_blank(), 
+    axis.text.x = element_text(angle = 40)) +   # Remove minor y-axis gridlines) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+pa2
+p_combo_a <- pa / pa2
+p_combo_a <- p_combo_a + plot_layout(ncol = 1)
+print(p_combo_a)
+#ggsave( "../output/figures/meaniwasIpaA_gainloss.png", p_combo_a, width = 12, height = 6)
+```
+
+
+# 2) IpaB
+
+## Fig 1) IpaB Iwas across three visits
+```{r}
+df_b <- ipaB_raw %>% group_by(visit_2, aminoacidposition) %>% summarise(mean_IWAS = mean(iwasvalue_norm))
+range(df_b$aminoacidposition)
+
+pb <- ggplot(df_b, aes(x = aminoacidposition, y = mean_IWAS, group = visit_2, color = visit_2)) +
+  geom_line() + 
+  scale_color_manual(values = c("3 months" = "#E69F00", 
+                               "14 months" = "#56B4E9", 
+                               "28 months" = "#009E73")) +
+  theme_minimal(base_size = 14) +
+  labs(x = "",
+       y = "", 
+       title = "IpaB", 
+       color = "Age in months") + 
+  scale_x_continuous(limits = c(0, 575), expand = c(0,0), n.breaks = 15) + 
+  scale_y_continuous(limits = c(-1, 2), expand = c(0,0)) + 
+  theme(legend.position =  "none", 
+        panel.grid.major.y = element_blank(), 
+        text = element_text(size = 20), 
+        axis.text.x = element_text(angle = 45)) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+  #geom_hline(yintercept = quantile(df_b$mean_IWAS, 0.9), linetype = "dashed", color = "black")
+pb
+```
+
+## Fig 2) IpaB gain/loss 
+
+```{r}
+#mutate df so that if it is a positive value for 1 to 2; it is recoded to 0; if it is a negative value for 2 to 3 it is a 0 (baselines)
+ipaB$mean_iwas_change <- as.numeric(ipaB$mean_iwas_change)
+ipaB_recoded <- ipaB %>% mutate(mean_iwas_change_2 = 
+                                  ifelse((direction_change_iwas == "1->2" & mean_iwas_change > 0) |
+                                          (direction_change_iwas == "2->3" & mean_iwas_change < 0), 
+                                         0, 
+                                         mean_iwas_change))
+range(ipaB_recoded$mean_iwas_change_2)
+
+pb2 <- ggplot(ipaB_recoded, aes(x=aminoacidposition, y=mean_iwas_change_2, 
+                                groups = direction_change2, 
+                                fill = direction_change2)) +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  geom_area() + 
+  theme_minimal(base_size = 14) +
+  scale_x_continuous(limits = c(0, 575), expand = c(0,0), n.breaks = 15) + 
+  scale_y_continuous(limits = c(-1.0, 0.5), expand = c(0,0), labels = scaleFUN) +
+  labs(x = "",
+       y = "", 
+       title = "IpaB", 
+       fill = "") +
+  scale_fill_manual(values = c("3 to 14 months" = "#E69F00", 
+                               "14 to 28 months" = "#009E73")) +
+  theme(legend.position = "none", 
+        text = element_text(size = 20),
+        panel.grid.major.y = element_blank(),  # Remove major y-axis gridlines
+    panel.grid.minor.y = element_blank(), 
+    legend.title = element_blank(), 
+    axis.text.x = element_text(angle = 40)) +   # Remove minor y-axis gridlines) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+
+p_combo_b <- pb / pb2
+p_combo_b <- p_combo_b + plot_layout(ncol = 1)
+print(p_combo_b)
+#ggsave( "../output/figures/meaniwasipaB_gainloss.png", p_combo_b, width = 12, height = 6)
+```
+# 3) IpaC
+## Fig 1) IpaC Iwas across three visits
+```{r}
+df_c <- ipaC_raw %>% group_by(visit_2, aminoacidposition) %>% summarise(mean_IWAS = mean(iwasvalue_norm))
+range(df_c$aminoacidposition)
+
+pc <- ggplot(df_c, aes(x = aminoacidposition, y = mean_IWAS, group = visit_2, color = visit_2)) +
+  geom_line() + 
+  scale_color_manual(values = c("3 months" = "#E69F00", 
+                               "14 months" = "#56B4E9", 
+                               "28 months" = "#009E73")) +
+  theme_minimal(base_size = 14) +
+  labs(x = "",
+       y = "Mean Enrichment Score", 
+       title = "IpaC", 
+       color = "Age in months") + 
+  scale_x_continuous(limits = c(0, 358), expand = c(0,0), n.breaks = 15) + 
+  scale_y_continuous(limits = c(-1, 2), expand = c(0,0)) + 
+  theme(legend.position =  "none", #c(0.8, 0.8), 
+        panel.grid.major.y = element_blank(), 
+        text = element_text(size = 20), 
+        axis.text.x = element_text(angle = 45)) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+  #geom_hline(yintercept = quantile(df_c$mean_IWAS, 0.9), linetype = "dashed", color = "black")
+pc
+```
+
+## Fig 2) IpaC gain/loss 
+
+```{r}
+#mutate df so that if it is a positive value for 1 to 2; it is recoded to 0; if it is a negative value for 2 to 3 it is a 0 (baselines)
+ipaC$mean_iwas_change <- as.numeric(ipaC$mean_iwas_change)
+ipaC_recoded <- ipaC %>% mutate(mean_iwas_change_2 = 
+                                  ifelse((direction_change_iwas == "1->2" & mean_iwas_change > 0) |
+                                          (direction_change_iwas == "2->3" & mean_iwas_change < 0), 
+                                         0, 
+                                         mean_iwas_change))
+range(ipaC_recoded$mean_iwas_change_2)
+pc2 <- ggplot(ipaC_recoded, aes(x=aminoacidposition, y=mean_iwas_change_2, 
+                                groups = direction_change2, 
+                                fill = direction_change2)) +
+  geom_area() + 
+  guides(fill = guide_legend(reverse = TRUE)) + 
+  theme_minimal(base_size = 14) +
+  scale_x_continuous(limits = c(0, 358), expand = c(0,0.5), n.breaks = 15) + 
+  scale_y_continuous(limits = c(-2, 1), expand = c(0,0), labels = scaleFUN) +
+  labs(x = "",
+       y = "Change in Mean Enrichment Score", 
+       title = "IpaC", 
+       fill = "") +
+  scale_fill_manual(values = c("3 to 14 months" = "#E69F00", 
+                               "14 to 28 months" = "#009E73")) +
+  theme(legend.position = "none", #c(0.75, 0.95), 
+        text = element_text(size = 20),
+        panel.grid.major.y = element_blank(),  # Remove major y-axis gridlines
+    panel.grid.minor.y = element_blank(), 
+    legend.title = element_blank(), 
+    axis.text.x = element_text(angle = 40)) +   # Remove minor y-axis gridlines) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+
+p_combo_c <- pc / pc2
+p_combo_c <- p_combo_c + plot_layout(ncol = 1)
+print(p_combo_c)
+#ggsave( "../output/figures/meaniwasipaC_gainloss.png", p_combo_c, width = 12, height = 6)
+```
+
+# 4) IpaD
+## Fig 1) IpaD Iwas across three visits
+```{r}
+df_d <- ipaD_raw %>% group_by(visit_2, aminoacidposition) %>% summarise(mean_IWAS = mean(iwasvalue_norm))
+range(df_d$aminoacidposition)
+
+pd <- ggplot(df_d, aes(x = aminoacidposition, y = mean_IWAS, group = visit_2, color = visit_2)) +
+  geom_line() + 
+  scale_color_manual(values = c("3 months" = "#E69F00", 
+                               "14 months" = "#56B4E9", 
+                               "28 months" = "#009E73")) +
+  theme_minimal(base_size = 14) +
+  labs(x = "",
+       y = "", 
+       title = "IpaD", 
+       color = "Age in months") + 
+  scale_x_continuous(limits = c(0, 335), expand = c(0,0), n.breaks = 15) + 
+  scale_y_continuous(limits = c(-1, 2), expand = c(0,0)) + 
+  theme(legend.position = "none", #c(0.8, 0.8), 
+        panel.grid.major.y = element_blank(), 
+        text = element_text(size = 20), 
+        axis.text.x = element_text(angle = 45)) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+  #geom_hline(yintercept = quantile(df_d$mean_IWAS, 0.9), linetype = "dashed", color = "black")
+pd
+```
+
+## Fig 2) IpaD gain/loss 
+
+```{r}
+#mutate df so that if it is a positive value for 1 to 2; it is recoded to 0; if it is a negative value for 2 to 3 it is a 0 (baselines)
+ipaD$mean_iwas_change <- as.numeric(ipaD$mean_iwas_change)
+ipaD_recoded <- ipaD %>% mutate(mean_iwas_change_2 = 
+                                  ifelse((direction_change_iwas == "1->2" & mean_iwas_change > 0) |
+                                          (direction_change_iwas == "2->3" & mean_iwas_change < 0), 
+                                         0, 
+                                         mean_iwas_change))
+range(ipaD_recoded$mean_iwas_change_2)
+
+pd2 <- ggplot(ipaD_recoded, aes(x=aminoacidposition, y=mean_iwas_change_2, 
+                                groups = direction_change2, 
+                                fill = direction_change2)) +
+  geom_area() + 
+  theme_minimal(base_size = 14) +
+  scale_x_continuous(limits = c(0, 330), expand = c(0,0), n.breaks = 15) + 
+  scale_y_continuous(limits = c(-0.5, 0.5), expand = c(0,0)) +
+  labs(x = "",
+       y = "", 
+       title = "IpaD", 
+       fill = "") +
+  scale_fill_manual(values = c("3 to 14 months" = "#E69F00", 
+                               "14 to 28 months" = "#009E73")) +
+  theme(legend.position = "none", #c(0.8, 0.8), 
+        text = element_text(size = 20),
+        panel.grid.major.y = element_blank(),  # Remove major y-axis gridlines
+    panel.grid.minor.y = element_blank(), 
+    legend.title = element_blank(), 
+    axis.text.x = element_text(angle = 40)) +   # Remove minor y-axis gridlines) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+
+p_combo_d <- pd / pd2
+p_combo_d <- p_combo_d + plot_layout(ncol = 1)
+print(p_combo_d)
+#ggsave( "../output/figures/fig1_meaniwasipaD_gainloss.png", p_combo_d, width = 12, height = 6)
+```
+
+# 5) IpaH3
+
+## Fig 1) IpaH3 Iwas across three visits
+```{r}
+df_h3 <- ipaH3_raw %>% group_by(visit_2, aminoacidposition) %>% summarise(mean_IWAS = mean(iwasvalue_norm))
+range(df_h3$aminoacidposition)
+
+ph3 <- ggplot(df_h3, aes(x = aminoacidposition, y = mean_IWAS, group = visit_2, color = visit_2)) +
+  geom_line() + 
+  scale_color_manual(values = c("3 months" = "#E69F00", 
+                               "14 months" = "#56B4E9", 
+                               "28 months" = "#009E73")) +
+  theme_minimal(base_size = 14) +
+  labs(x = "Amino Acid Position",
+       y = "", 
+       title = "IpaH3", 
+       color = "Age") + 
+  scale_x_continuous(limits = c(0, 566), expand = c(0,0), n.breaks = 15) + 
+  scale_y_continuous(limits = c(-1, 2), expand = c(0,0)) + 
+  theme(legend.position = "none", #c(0.8, 0.8), 
+        panel.grid.major.y = element_blank(), 
+        text = element_text(size = 20), 
+        axis.text.x = element_text(angle = 45)) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+  #geom_hline(yintercept = quantile(df_d$mean_IWAS, 0.9), linetype = "dashed", color = "black")
+ph3
+```
+
+## Fig 2) ipaH3 gain/loss 
+
+```{r}
+#mutate df so that if it is a positive value for 1 to 2; it is recoded to 0; if it is a negative value for 2 to 3 it is a 0 (baselines)
+ipaH3$mean_iwas_change <- as.numeric(ipaH3$mean_iwas_change)
+ipaH3_recoded <- ipaH3 %>% mutate(mean_iwas_change_2 = 
+                                  ifelse((direction_change_iwas == "1->2" & mean_iwas_change > 0) |
+                                          (direction_change_iwas == "2->3" & mean_iwas_change < 0), 
+                                         0, 
+                                         mean_iwas_change))
+range(ipaH3_recoded$mean_iwas_change_2)
+
+ph3_2 <- ggplot(ipaH3_recoded, aes(x=aminoacidposition, y=mean_iwas_change_2, 
+                                groups = factor(direction_change2, 
+                                                levels = c("3 to 14 months", "14 to 28 months")), 
+                                fill = factor(direction_change2, 
+                                              levels = c("3 to 14 months", "14 to 28 months")))) +
+  geom_area() + 
+  theme_minimal(base_size = 14) +
+  scale_x_continuous(limits = c(0, 566), expand = c(0,0.5), n.breaks = 15) + 
+  scale_y_continuous(limits = c(-0.5, 0.5), expand = c(0,0)) +
+  labs(x = "Amino Acid Position",
+       y = "", 
+       title = "IpaH3", 
+       fill = "Age in Months") +
+  scale_fill_manual(values = c("3 to 14 months" = "#E69F00", 
+                               "14 to 28 months" = "#009E73")) +
+  theme(legend.position = "none", #c(0.8, 0.8), 
+        text = element_text(size = 20),
+        panel.grid.major.y = element_blank(),  # Remove major y-axis gridlines
+    panel.grid.minor.y = element_blank(), 
+    legend.title = element_blank(), 
+    axis.text.x = element_text(angle = 40)) +   # Remove minor y-axis gridlines) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+ph3_2
+
+p_combo_h3 <- ph3 / ph3_2
+p_combo_h3 <- p_combo_h3 + plot_layout(ncol = 1)
+print(p_combo_h3)
+#ggsave( "../figures/fig1_meaniwasipaH3_gainloss.png", p_combo_h3, width = 12, height = 6)
+```
+
+# 6) Motif analysis 
+
+## Table 2) Table of motifs across all proteins (supplemental)
+```{r}
+# All motifs
+# filtered down to motifs that were associated with a specific Ipa protein in this panel
+df_motifs <- df1 %>% filter(str_detect(probable_shigella_antigen, "Ipa")) %>%
+  mutate(motif_pos = ifelse(motif_z >= 4, "POS", "NEG"))
+
+# Summary measures for all proteins and timepoints
+m_clean <- df_motifs %>% 
+  group_by(probable_shigella_antigen, motif_family, epitope_motif, sequence, location, visit_2) %>% 
+  summarise(count_pos = sum(motif_pos == "POS"), 
+            count_neg = sum(motif_pos == "NEG"), 
+            percent_pos = round(count_pos / (count_pos + count_neg) *100,2),  
+            mean_z_score = round(mean(motif_z), 2)) %>% arrange(motif_family, sequence, location, visit_2) %>% arrange(probable_shigella_antigen, desc(percent_pos))
+#remove the ":" after the amino acid location
+m_clean$location <- gsub(":", "", m_clean$location)
+
+# summarise the percent positive over the timepoints
+m_percent <- m_clean %>% 
+  select(-count_pos, -count_neg, -mean_z_score) %>% 
+  pivot_wider(names_from = visit_2, values_from = percent_pos) %>% 
+  mutate(shigella_antigen = case_when(str_detect(probable_shigella_antigen, "IpaC") ~ "Invasin IpaC", #recode to the protein level 
+                                      str_detect(probable_shigella_antigen, "IpaA") ~ "Invasin IpaA",
+                                      str_detect(probable_shigella_antigen, "IpaB") ~ "Invasin IpaB", 
+                                      str_detect(probable_shigella_antigen, "IpaD") ~ "Invasin IpaD",
+                                      TRUE ~ "Not listed")) %>% 
+  arrange(shigella_antigen, motif_family) %>% ungroup() %>%
+  select(-probable_shigella_antigen) %>% select(shigella_antigen, everything()) 
+  #filter(!str_detect(location, "multiple")) #removed motifs that didn't have a specific amino acid location?
+
+
+
+kable(m_percent, col.names = c("Antigen", "Motif Family", 
+                               "Epitope Motif", "AA Sequence", 
+                               "AA Position", "3 months", 
+                               "28 months", "14 months"), 
+      caption = "Proportion of samples positive for epitope motifs") %>%
+  kable_styling(full_width = FALSE, position = "center")
+write.csv(m_percent, "../output/table2_m_percent.csv")
+# summarise the mean Z-score over the timepoints
+m_zscore <- m_clean %>% 
+  select(-count_pos, -count_neg, -percent_pos) %>% 
+  pivot_wider(names_from = visit_2, values_from = mean_z_score) %>% 
+  mutate(shigella_antigen = case_when(str_detect(probable_shigella_antigen, "IpaC") ~ "Invasin IpaC", #recode to the protein level 
+                                      str_detect(probable_shigella_antigen, "IpaA") ~ "Invasin IpaA",
+                                      str_detect(probable_shigella_antigen, "IpaB") ~ "Invasin IpaB", 
+                                      str_detect(probable_shigella_antigen, "IpaD") ~ "Invasin IpaD",
+                                      TRUE ~ "Not listed")) %>% 
+  arrange(shigella_antigen, motif_family) %>% ungroup() %>%
+  select(-probable_shigella_antigen) %>% select(shigella_antigen, everything())  
+  #filter(!str_detect(location, "multiple")) #removed motifs that didn't have a specific amino acid location?
+
+kable(m_zscore, col.names = c("Antigen", "Motif Family", 
+                               "Epitope Motif", "AA Sequence", 
+                               "AA Position", "3 months", 
+                               "28 months", "14 months"), 
+      caption = "Mean z-score for epitope motifs") %>%
+  kable_styling(full_width = FALSE, position = "center")
+
+```
+
+## Figure 3) Family of motifs (overlapping regions) for all proteins
+```{r}
+#There are 7 motif families 
+# IpaA: 2 - close to each other can be same panel
+# IpaB: 2 - maybe close enough for one panel 
+# IpaC: 3!
+
+# 1) IpaA Motif families
+## Region 286-293, 293-303, 312-321
+
+# define sequence and positions
+library(grid)
+#Have to break up the amino acid sequences
+#sequence 1
+positions_1 <- 299:303
+sequence_1 <- strsplit("IHYHI", "")[[1]]
+#sequence 2
+positions_2 <- 293:300
+sequence_2 <- strsplit("KtsQPvIH", "")[[1]]
+#sequence 3
+positions_3 <- 296:303
+sequence_3 <- strsplit("QPviHYhI", "")[[1]]
+#sequence 4
+positions_4 <- 315:321
+sequence_4 <- strsplit("FDNRvyD", "")[[1]]
+#sequence 5
+positions_5 <- 312:318
+sequence_5 <- strsplit("nrvFDNR", "")[[1]]
+
+ipaa_motifs <- ggplot(df_a, aes(x = aminoacidposition, y = mean_IWAS, group = visit_2, color = visit_2)) +
+  annotate(geom = "rect", xmin = 293, xmax = 300, ymin = -2, ymax = 4, alpha = 0.2, color = NA, fill = "darkgrey") +
+  annotate(geom = "rect", xmin = 296, xmax = 303, ymin = -2, ymax = 4, alpha = 0.2, color = NA, fill = "darkgrey") +
+  annotate(geom = "rect", xmin = 299, xmax = 303, ymin = -2, ymax = 4, alpha = 0.2, color = NA, fill = "darkgrey") +
+  annotate(geom = "rect", xmin = 312, xmax = 318, ymin = -2, ymax = 4, alpha = 0.2, color = NA, fill = "darkgrey") +
+  annotate(geom = "rect", xmin = 315, xmax = 321, ymin = -2, ymax = 4, alpha = 0.2, color = NA, fill = "darkgrey") +
+  annotate("text", x = positions_1[1], y = -1, label = sequence_1[1], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = positions_1[2], y = -1, label = sequence_1[2], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = positions_1[3], y = -1, label = sequence_1[3], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = positions_1[4], y = -1, label = sequence_1[4], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = positions_1[5], y = -1, label = sequence_1[5], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = positions_2[1], y = -0.5, label = sequence_2[1], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = positions_2[2], y = -0.5, label = sequence_2[2], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = positions_2[3], y = -0.5, label = sequence_2[3], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = positions_2[4], y = -0.5, label = sequence_2[4], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = positions_2[5], y = -0.5, label = sequence_2[5], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = positions_2[6], y = -0.5, label = sequence_2[6], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = positions_2[7], y = -0.5, label = sequence_2[7], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +  
+  annotate("text", x = positions_2[8], y = -0.5, label = sequence_2[8], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_3[1], y = -1.5, label = sequence_3[1], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_3[2], y = -1.5, label = sequence_3[2], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_3[3], y = -1.5, label = sequence_3[3], size = 8, hjust = 0.5, color = "black") + 
+  annotate("text", x = positions_3[4], y = -1.5, label = sequence_3[4], size = 8, hjust = 0.5, color = "black") + 
+  annotate("text", x = positions_3[5], y = -1.5, label = sequence_3[5], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_3[6], y = -1.5, label = sequence_3[6], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_3[7], y = -1.5, label = sequence_3[7], size = 8, hjust = 0.5, color = "black") + 
+  annotate("text", x = positions_3[8], y = -1.5, label = sequence_3[8], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_4[1], y = -1, label = sequence_4[1], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_4[2], y = -1, label = sequence_4[2], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_4[3], y = -1, label = sequence_4[3], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_4[4], y = -1, label = sequence_4[4], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_4[5], y = -1, label = sequence_4[5], size = 8, hjust = 0.5, color = "black") + 
+  annotate("text", x = positions_4[6], y = -1, label = sequence_4[6], size = 8, hjust = 0.5, color = "black") + 
+  annotate("text", x = positions_4[7], y = -1, label = sequence_4[7], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_5[1], y = -0.5, label = sequence_5[1], size = 8, hjust = 0.5, color = "black") + 
+  annotate("text", x = positions_5[2], y = -0.5, label = sequence_5[2], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = positions_5[3], y = -0.5, label = sequence_5[3], size = 8, hjust = 0.5, color = "black") + 
+  annotate("text", x = positions_5[4], y = -0.5, label = sequence_5[4], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_5[5], y = -0.5, label = sequence_5[5], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_5[6], y = -0.5, label = sequence_5[6], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x = positions_5[7], y = -0.5, label = sequence_5[7], size = 8, hjust = 0.5, color = "black",  fontface = "bold") + 
+  annotate("text", x =296, y = 3.7, label = "Motif family 1", size = 8, color = "darkgrey") + 
+  annotate("text", x =315, y = 3.7, label = "Motif family 4", size = 8, color = "darkgrey") + 
+  geom_line() + 
+  scale_color_manual(values = c("3 months" = "#E69F00", 
+                               "14 months" = "#56B4E9", 
+                               "28 months" = "#009E73")) +
+  theme_minimal(base_size = 14) +
+  labs(x = "Amino Acid Position",
+       y = "Mean IgG Enrichment", 
+       title = "IpaA", 
+       color = "Age in months") + 
+  scale_x_continuous(limits = c(292, 322), breaks = seq(275, 330, by = 1)) + 
+  scale_y_continuous(limits = c(-2, 4), expand = c(0,0)) + 
+  theme(legend.position = "none", #= c(0.9, 0.7), 
+        #panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(), 
+        axis.ticks.x = element_line(color = "black", size = 0.5), 
+        axis.text.x = element_text(angle = 90, hjust = 1), 
+        text = element_text(size = 20)) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+
+ipaa_motifs
+
+# 2) IpaB Motif families
+#Have to break up the amino acid sequences
+#family 3
+#sequence 1
+b_positions_1 <- 482:490
+b_sequence_1 <- strsplit("KqiISthLN", "")[[1]]
+#sequence 2
+b_positions_2 <- 482:489
+b_sequence_2 <- strsplit("KqIISthL", "")[[1]]
+#family 6
+#sequence 1
+b_positions_3 <- 528:533
+b_sequence_3 <- strsplit("SKYQvE", "")[[1]]
+
+
+
+ipab_motifs <- ggplot(df_b, aes(x = aminoacidposition, y = mean_IWAS, group = visit_2, color = visit_2)) +
+  annotate(geom = "rect", xmin = 482, xmax = 490, ymin = -1.2, ymax = 1.2, alpha = 0.2, color = NA, fill = "darkgrey") +
+  annotate(geom = "rect", xmin = 482, xmax = 489, ymin = -1.2, ymax = 1.2, alpha = 0.2, color = NA, fill = "darkgrey") +
+  annotate(geom = "rect", xmin = 528, xmax = 533, ymin = -1.2, ymax = 1.2, alpha = 0.2, color = NA, fill = "darkgrey") +
+  annotate("text", x = b_positions_1[1], y = -0.75, label = b_sequence_1[1], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_1[2], y = -0.75, label = b_sequence_1[2], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = b_positions_1[3], y = -0.75, label = b_sequence_1[3], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = b_positions_1[4], y = -0.75, label = b_sequence_1[4], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_1[5], y = -0.75, label = b_sequence_1[5], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_1[6], y = -0.75, label = b_sequence_1[6], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = b_positions_1[7], y = -0.75, label = b_sequence_1[7], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = b_positions_1[8], y = -0.75, label = b_sequence_1[8], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_1[9], y = -0.75, label = b_sequence_1[9], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_2[1], y = -1.0, label = b_sequence_2[1], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_2[2], y = -1.0, label = b_sequence_2[2], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = b_positions_2[3], y = -1.0, label = b_sequence_2[3], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_2[4], y = -1.0, label = b_sequence_2[4], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_2[5], y = -1.0, label = b_sequence_2[5], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_2[6], y = -1.0, label = b_sequence_2[6], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = b_positions_2[7], y = -1.0, label = b_sequence_2[7], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = b_positions_2[8], y = -1.0, label = b_sequence_2[8], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +  
+  annotate("text", x = b_positions_3[1], y = -0.75, label = b_sequence_3[1], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_3[2], y = -0.75, label = b_sequence_3[2], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_3[3], y = -0.75, label = b_sequence_3[3], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_3[4], y = -0.75, label = b_sequence_3[4], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = b_positions_3[5], y = -0.75, label = b_sequence_3[5], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = b_positions_3[6], y = -0.75, label = b_sequence_3[6], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +   
+   annotate("text", x =486, y = 1.1, label = "Motif family 3", size = 8, color = "darkgrey") + 
+  annotate("text", x =531, y = 1.1, label = "Motif family 6", size = 8, color = "darkgrey") + 
+  geom_line() + 
+  scale_color_manual(values = c("3 months" = "#E69F00", 
+                               "14 months" = "#56B4E9", 
+                               "28 months" = "#009E73")) +
+  theme_minimal(base_size = 14) +
+  labs(x = "Amino Acid Position",
+       y = "Mean IgG Enrichment", 
+       title = "IpaB", 
+       color = "Age in months") + 
+  scale_x_continuous(limits = c(475, 540), breaks = seq(475, 540, by = 1)) + 
+  scale_y_continuous(limits = c(-1.2, 1.2), expand = c(0,0)) + 
+  theme(legend.position = "none", #= c(0.9, 0.7), 
+        #panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(), 
+        axis.ticks.x = element_line(color = "black", size = 0.5), 
+        axis.text.x = element_text(angle = 90, hjust = 1), 
+        text = element_text(size = 20)) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+
+  ipab_motifs
+  # 3) IpaC Motif families (3!!!) to split into 2? 
+  #Have to break up the amino acid sequences
+##family 2
+#sequence 1
+c_positions_1 <- 247:258
+c_sequence_1 <- strsplit("LSspdIsLqDK", "")[[1]]
+
+##family 7
+#sequence 1
+c_positions_4 <- 224:229
+c_sequence_4 <- strsplit("TkFLGK", "")[[1]]
+
+##family 5
+#sequence 1
+c_positions_2 <- 177:183
+c_sequence_2 <- strsplit("SGISdqK", "")[[1]]
+
+#sequence 2
+c_positions_3 <- 176:183
+c_sequence_3 <- strsplit("HSGiSdqK", "")[[1]]
+
+  
+  ipac_motifs_1 <- ggplot(df_c, aes(x = aminoacidposition, y = mean_IWAS, group = visit_2, color = visit_2)) +
+  annotate(geom = "rect", xmin = 247, xmax = 258, ymin = -1.2, ymax = 1.2, alpha = 0.2, color = NA, fill = "darkgrey") +
+  annotate(geom = "rect", xmin = 224, xmax = 229, ymin = -1.2, ymax = 1.2, alpha = 0.2, color = NA, fill = "darkgrey") +
+  annotate("text", x = c_positions_1[1], y = -0.75, label = c_sequence_1[1], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = c_positions_1[2], y = -0.75, label = c_sequence_1[2], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = c_positions_1[3], y = -0.75, label = c_sequence_1[3], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = c_positions_1[4], y = -0.75, label = c_sequence_1[4], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = c_positions_1[5], y = -0.75, label = c_sequence_1[5], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = c_positions_1[6], y = -0.75, label = c_sequence_1[6], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = c_positions_1[7], y = -0.75, label = c_sequence_1[7], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = c_positions_1[8], y = -0.75, label = c_sequence_1[8], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+  annotate("text", x = c_positions_1[9], y = -0.75, label = c_sequence_1[9], size = 8, hjust = 0.5, color = "black") +
+    annotate("text", x = c_positions_1[10], y = -0.75, label = c_sequence_1[10], size = 8, hjust = 0.5, color = "black",  fontface = "bold") +
+    annotate("text", x = c_positions_1[11], y = -0.75, label = c_sequence_1[11], size = 8, hjust = 0.5, color = "black",  fontface = "bold")  +
+    annotate("text", x = c_positions_4[1], y = -0.75, label = c_sequence_4[1], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+    annotate("text", x = c_positions_4[2], y = -0.75, label = c_sequence_4[2], size = 8, hjust = 0.5, color = "black") +
+    annotate("text", x = c_positions_4[3], y = -0.75, label = c_sequence_4[3], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+    annotate("text", x = c_positions_4[4], y = -0.75, label = c_sequence_4[4], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+    annotate("text", x = c_positions_4[5], y = -0.75, label = c_sequence_4[5], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+    annotate("text", x = c_positions_4[6], y = -0.75, label = c_sequence_4[6], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+   annotate("text", x =250, y = 1.1, label = "Motif family 2", size = 8, color = "darkgrey") + 
+   annotate("text", x =227, y = 1.1, label = "Motif family 7", size = 8, color = "darkgrey") + 
+  geom_line() + 
+  scale_color_manual(values = c("3 months" = "#E69F00", 
+                               "14 months" = "#56B4E9", 
+                               "28 months" = "#009E73")) +
+  theme_minimal(base_size = 14) +
+  labs(x = "Amino Acid Position",
+       y = "Mean IgG Enrichment", 
+       title = "IpaC", 
+       color = "") + 
+  scale_x_continuous(limits = c(215, 265), breaks = seq(215, 265, by = 1)) + 
+  scale_y_continuous(limits = c(-1.2, 1.2), expand = c(0,0)) + 
+  theme(legend.position = "bottom", #= c(0.9, 0.7), 
+        #panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(), 
+        axis.ticks.x = element_line(color = "black", size = 0.5), 
+        axis.text.x = element_text(angle = 90, hjust = 1), 
+        text = element_text(size = 20)) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+  
+  ipac_motifs_1
+
+  ipac_motifs_2 <- ggplot(df_c, aes(x = aminoacidposition, y = mean_IWAS, group = visit_2, color = visit_2)) +
+  annotate(geom = "rect", xmin = 176, xmax = 183, ymin = -1.2, ymax = 1.2, alpha = 0.2, color = NA, fill = "darkgrey") +
+  annotate("text", x = c_positions_2[1], y = -0.75, label = c_sequence_2[1], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+  annotate("text", x = c_positions_2[2], y = -0.75, label = c_sequence_2[2], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+  annotate("text", x = c_positions_2[3], y = -0.75, label = c_sequence_2[3], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+  annotate("text", x = c_positions_2[4], y = -0.75, label = c_sequence_2[4], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+  annotate("text", x = c_positions_2[5], y = -0.75, label = c_sequence_2[5], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = c_positions_2[6], y = -0.75, label = c_sequence_2[6], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = c_positions_2[7], y = -0.75, label = c_sequence_2[7], size = 8, hjust = 0.5, color = "black", fontface = "bold", fontface = "bold") +
+  annotate("text", x = c_positions_3[1], y = -0.75, label = c_sequence_3[1], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+  annotate("text", x = c_positions_3[2], y = -0.75, label = c_sequence_3[2], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+  annotate("text", x = c_positions_3[3], y = -0.75, label = c_sequence_3[3], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+  annotate("text", x = c_positions_3[4], y = -0.75, label = c_sequence_3[4], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = c_positions_3[5], y = -0.75, label = c_sequence_3[5], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+  annotate("text", x = c_positions_3[6], y = -0.75, label = c_sequence_3[6], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = c_positions_3[7], y = -0.75, label = c_sequence_3[7], size = 8, hjust = 0.5, color = "black") +
+  annotate("text", x = c_positions_3[8], y = -0.75, label = c_sequence_3[8], size = 8, hjust = 0.5, color = "black", fontface = "bold") +
+   annotate("text", x =179, y = 1.1, label = "Motif family 5", size = 8, color = "darkgrey") + 
+  geom_line() + 
+  scale_color_manual(values = c("3 months" = "#E69F00", 
+                               "14 months" = "#56B4E9", 
+                               "28 months" = "#009E73")) +
+  theme_minimal(base_size = 14) +
+  labs(x = "Amino Acid Position",
+       y = "Mean IgG Enrichment", 
+       title = "IpaC", 
+       color = "Age in months") + 
+  scale_x_continuous(limits = c(170, 188), breaks = seq(170, 188, by = 1)) + 
+  scale_y_continuous(limits = c(-1.2, 1.2), expand = c(0,0)) + 
+  theme(legend.position = "none", #= c(0.9, 0.7), 
+        #panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(), 
+        axis.ticks.x = element_line(color = "black", size = 0.5), 
+        axis.text.x = element_text(angle = 90, hjust = 1), 
+        text = element_text(size = 20)) + 
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+
+  ipac_motifs_2 
+  
+  
+```
+
+
+# 7) Format for manuscript export
+## Figure 1: All Ipa proteins by visit
+```{r}
+fig1 <- plot_grid(pa, pb, pc, pd, ph3, ncol = 1)
+fig1
+ggsave("../figures/fig3_iwas_byvisit.png", fig1, height = 20, width = 12)
+```
+## Figure 2: All Ipa proteins, gain and loss
+```{r}
+#column 1
+#pa2 <- pa2 + theme(plot.margin = margin(15, 30, 15, 15))
+#pc2 <- pc2 + theme(plot.margin = margin(15, 30, 15, 15))
+#ph3_2 <- ph3_2 + theme(plot.margin = margin(15, 30, 15, 15))
+#column 2
+#pb2 <- pb2 + theme(plot.margin = margin(15, 15, 15, 30))
+#pd2 <- pd2 + theme(plot.margin = margin(15, 15, 15, 30))
+
+#fig2 <- plot_grid(pa2, pb2, pc2, pd2, ph3_2, ncol = 2)
+#fig2
+
+# straight column 
+fig2a <- plot_grid(pa2, pb2, pc2, pd2, ph3_2, ncol = 1)
+fig2a
+
+#ggsave("../output/figures/fig4_iwas_gainloss.png", fig2a, height = 10, width = 17)
+ggsave("../figures/fig3_iwas_gainloss_long.png", fig2a, height = 20, width = 12)
+```
+## Figure 3: Amino acid regions with motif families
+
+```{r}
+plot_grid(ipaa_motifs, ipab_motifs, ipac_motifs_1, ipac_motifs_2)
+  
+fig3 <- (ipaa_motifs+ipac_motifs_2)/ ipab_motifs / ipac_motifs_1
+  
+fig3
+ggsave("../figures/fig4_motifs.png", fig3, height = 20, width = 20)
+```
+

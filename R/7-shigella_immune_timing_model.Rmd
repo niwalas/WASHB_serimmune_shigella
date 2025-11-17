@@ -1,0 +1,432 @@
+---
+title: "shigella_immune_timing_model"
+author: "Niko Walas"
+date: "2025-01-09"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+# File summary 
+This file models maternal IgG waning and seroprevalence for figure 5 of the manuscript
+
+
+```{r preamble, echo = FALSE, message = FALSE}
+#----------------------------------
+# load the config file
+#----------------------------------
+library(here)
+source("0-shig-config.r")
+library(rstan)
+library(bayesplot)
+library(scales)
+options(mc.cores = parallel::detectCores())
+rstan_options(threads_per_chain = 1)
+
+
+# read raw data with epitope and seroreactive regions annotations:
+antigen_DF <- read.csv(here("data/shig_iwas_aa_level_anon.csv")) 
+antigen_DF <- antigen_DF %>% filter(!str_detect(protein, "P18010") & 
+                                      !str_detect(protein, "P18011") & 
+                                      !str_detect(protein, "P18012") & 
+                                      !str_detect(protein, "P18013") & 
+                                      !str_detect(protein, "Q83RJ4") & 
+                                      !str_detect(protein, "A0A0H2") & 
+                                      !str_detect(protein, "A0A2S4") & 
+                                      !str_detect(protein, "A0A658")) %>% filter(str_detect(protein, "ipa"))
+
+# metadata
+metadata <- read.csv(here::here("data/washb-serimmune-metadata-230616.csv")) %>% 
+  pivot_longer(cols = 2:4, names_to = "timepoint", values_to = "SampleID") %>% 
+  select(SampleID, arm, sex, birthord_cat, momage, agedays_base, agedays_mid, agedays_end) %>% 
+  as.data.frame()
+
+head(metadata); unique(metadata$arm)
+```
+# 1) Data clean and prep
+## 1a) Prepare protein level data
+```{r}
+#----------------------------------
+# prepare the protein level summary
+#----------------------------------
+antigen_DF <- antigen_DF %>%
+  separate(protein, into = c("protein", "code"), sep = "_") %>% mutate(pathogen = "shigella")
+```
+## 1b) Join with the metadata
+```{r}
+# left join the data 
+DF0 <- left_join(antigen_DF, metadata, by = "SampleID")
+```
+
+## 1c) Filter only seroreactive regions:
+```{r}
+DF1 <- DF0 %>% drop_na(seroreactive_region) %>% group_by(pathogen, protein, SampleID) %>% 
+  reframe(no_epitopes = n_distinct(epitope_no, na.rm=T)) %>% 
+  left_join(metadata, by = join_by("SampleID")) %>% select(-c(sex, birthord_cat, momage)) %>% 
+  mutate(visit = gsub("[^A-Za-z]", "", SampleID) %>% substring(1,1)) %>% 
+  mutate(age = case_when(visit == "B" ~ agedays_base, visit == "M" ~ agedays_mid, TRUE ~ agedays_end),
+         visit = recode(visit, 'B'='Visit 1', 'M'='Visit 2', 'E'='Visit 3')) %>% 
+  select(-c(agedays_base, agedays_mid, agedays_end))
+
+head(DF1); nrow(DF1)/360
+str(DF1)
+unique(DF1$pathogen)
+#write.csv(DF1, "../output/epitope_hits_per_sample-Shigella-ipa.csv", row.names = FALSE)
+```
+
+## 1d) Do some slight data processing for convenience
+```{r}
+dp2 <- DF1 %>%
+  mutate(tx = factor(arm, levels = c("Control", "Nutrition + WSH"), 
+                     labels = c("Control","Intervention")),
+         visit = factor(visit, levels = c("Visit 1", "Visit 2", "Visit 3"), 
+                        labels = c("Visit 1", "Visit 2", "Visit 3")),
+         pathogen = factor(pathogen),
+         antigen = factor(protein)
+  ) %>%
+  # create cluster ID and Child ID: 
+  mutate(clusterid = paste0("cl",substr(SampleID,1,3)),
+         childid = paste0("ch",substr(SampleID,1,5)))
+
+
+# summarize number of epitope hits by sample 
+head(dp2); str(dp2)
+unique(dp2$pathogen)
+hits1 <- dp2 %>%
+  group_by(clusterid, childid, SampleID, tx, visit, pathogen) %>%
+  summarize(epihits = sum(no_epitopes), .groups = "drop")
+
+#write.csv(hits1, "../output/group_comparison/person-epitope-hits-Shigella-ipa.csv", row.names = FALSE)
+head(hits1)
+```
+
+## 1e) Summarize number of epitope hits by sample 
+```{r}
+head(dp2); str(dp2)
+unique(dp2$pathogen)
+hits1 <- dp2 %>%
+  group_by(clusterid, childid, SampleID, tx, visit, pathogen) %>%
+  summarize(epihits = sum(no_epitopes), .groups = "drop")
+
+#write.csv(hits1, "../output/group_comparison/person-epitope-hits-Shigella-ipa.csv", row.names = FALSE)
+
+head(hits1)
+
+serop1 <- hits1 %>% mutate(seropos = ifelse(epihits >= 2,1,0)) %>% #criteria: at least 2 epitope hits in one or more protein
+  left_join(metadata, by = join_by("SampleID")) %>% 
+  select(-c(sex, birthord_cat, momage)) %>% 
+  mutate(age = case_when(visit == "Visit 1" ~ agedays_base, 
+                         visit == "Visit 2" ~ agedays_mid, 
+                         TRUE ~ agedays_end)) %>% 
+  select(-c(agedays_base, agedays_mid, agedays_end))
+  
+head(serop1)
+serop2 <- serop1 %>% mutate(age_mo = round(age/(30.417), digits = 0)) %>% 
+  group_by(age_mo) %>% 
+  reframe(npos = sum(seropos == 1), nneg = sum(seropos == 0)) %>% 
+  mutate(total = npos + nneg,
+         a = 1 + npos, b = 1 + nneg,
+         prev = qbeta(0.5, a, b), # probability 
+         lower = qbeta(0.025, a, b), upper = qbeta(0.975, a, b))
+
+#write.csv(serop2, "../output/pathogen-age-seroprev-Shigella.csv", row.names = FALSE)
+
+head(serop2)
+
+# plot seropositivity by visit
+serop1 %>% group_by(visit) %>% summarise(npos = sum(seropos == 1), 
+                                         nneg = sum(seropos == 0)) %>%
+   mutate(total = npos + nneg,
+         a = 1 + npos, b = 1 + nneg,
+         prev = qbeta(0.5, a, b), # probability 
+         lower = qbeta(0.025, a, b), upper = qbeta(0.975, a, b)) %>% 
+  ggplot(aes(x = visit)) +
+  geom_pointrange(aes(y = prev, ymin = lower, ymax = upper), alpha = 0.4) +
+  scale_y_continuous(limits = c(0,1), labels = scales::percent) +
+  labs(x = "", y = "Seroprevalence",
+       title = "Estimated seroprevalence by visit",
+       subtitle = "as presented in trial comparison") +
+  theme_bw() 
+
+serop2 %>% ggplot(aes(x = age_mo)) +
+  geom_pointrange(aes(y = prev, ymin = lower, ymax = upper), alpha = 0.4) +
+  scale_y_continuous(limits = c(0,1), labels = scales::percent) +
+  labs(x = "Age, months", y = "Seroprevalence", 
+       title = "Estimated seroprevalence by month") +
+  theme_bw() 
+```
+
+# 2) Model the data
+
+## 2a) Model input and generation
+```{r}
+#----------------------------------
+# Fit data with stan:
+#----------------------------------
+model <- stan_model(here("R/maternal_abs_constant_FOI-v4.stan"))
+
+data_stan <- list(
+  n_obs = nrow(serop2),
+  n_pos = serop2$npos,
+  n_total = serop2$total,
+  ages = serop2$age_mo)
+
+## initial values - waning rate (gamma) of 6 months
+initfn <- function() { list(lambda = 0.05, gamma = 2) }
+fit <- optimizing(model, data = data_stan, init = initfn, as_vector = FALSE)
+initf <- function(chain_id = 1) { list( lambda = fit$par$lambda, gamma = fit$par$gamma ) }
+n_chains <- 4
+init_ll <- lapply(1:n_chains, function(id) initf(chain_id = id))
+
+fit <- sampling(model, data = data_stan, chains = 4, init = init_ll, iter = 3000, warmup = 900, 
+                refresh = 0, seed = 345, control = list(adapt_delta = 0.9999, max_treedepth = 25))
+
+#
+#saveRDS(fit, file = paste0("../output/model_fit_files/model-fit-seroprevalence/shigella-ipa.rds")) # save fit:
+
+# extract fit summary
+s <- as.data.frame(summary(fit, probs = c(0.025, 0.5, 0.975))$summary) 
+#write.csv(s, file = paste0("../output/model_fit_files/model-fit-seroprevalence/shigella-ipa.csv"), 
+         # row.names = TRUE)
+
+model_ppc1 <- tibble::rownames_to_column(s, "parameter") %>% 
+  filter(grepl("\\bprob_infection\\b", parameter)) %>% 
+  mutate(ages = serop2$age_mo)
+
+model_ppc2 <- tibble::rownames_to_column(s, "parameter") %>% 
+  filter(grepl(paste(c("\\blambda\\b","\\bgamma\\b"), collapse = "|"), parameter)) 
+```
+
+## 2b) Plots of seronegative and seropositive curves:
+
+```{r}
+# Plot probability of waning:
+const_foi <- function(ages, lambda, gamma){
+  tibble(age = ages,
+         prop_m = exp(-gamma * ages), # maternal antibodies
+         prop_x = (gamma*(1-exp(-lambda*ages))-(lambda*(1-exp(-gamma*ages))))/(gamma-lambda), # infected
+         prop_x2 = 1 - ((gamma/gamma-lambda)*(exp(-lambda*ages) - exp(-gamma*ages))), # m(a)+x(a)
+         prop_s = 1 - prop_x2 # susceptibles
+  )}
+
+ages <- seq(0.1,36,by=0.1)
+
+df1 <- const_foi(ages, lambda = model_ppc2$mean[2], gamma = model_ppc2$mean[1]) 
+df2 <- const_foi(ages, lambda = model_ppc2$`2.5%`[2], 
+                 gamma = model_ppc2$`2.5%`[1]) #gamma 2.5%
+df3 <- const_foi(ages, lambda = model_ppc2$`97.5%`[2], 
+                 gamma = model_ppc2$`97.5%`[1]) #gamma 2.5%
+
+df4 <- left_join(df1, df2 %>% select(age, prop_x2) %>% rename(low_ci = prop_x2), by = "age")
+df5 <- left_join(df4, df3 %>% select(age, prop_x2) %>% rename(up_ci = prop_x2), by = "age")
+
+head(df1)
+#write.csv(df1, "../output/model_fit_files/simulated-maternal-seropos-populations-shigella-ipa.csv")
+#df1 <- read.csv("output/model_fit_files/simulated-maternal-seropos-populations-shigella-ipa.csv")
+
+df1 %>% ggplot(aes(x = age)) +
+  geom_line(aes(y = prop_m), colour = "#009E73") + # maternal antibodies
+  geom_line(aes(y = prop_x), colour = "#CC79A7") + # infected 
+  geom_line(aes(y = prop_x2), colour = "#0072B2") + # m(a) + x(a) #estimated seroprevalence from model  
+  #geom_line(aes(y = prop_s), colour = "#E69F00") + # Susceptibles 
+  labs(x = "Age, months", y = "Seropositivity", subtitle = "Qualitative behavior of immunity with age") +
+  coord_cartesian(xlim = c(0.1,36)) +
+  scale_x_continuous(breaks =  c(6,9,12,18,24,36)) + #trans = "log2", 
+  scale_y_continuous(limits = c(0,1), labels = scales::percent) +
+  theme_bw() +
+  theme(axis.text.x = element_text(size = 8, angle = 90)) 
+
+
+df1 %>% ggplot(aes(x = age)) +
+  geom_line(aes(y = prop_m), colour = "#009E73") +
+  geom_line(aes(y = prop_x), colour = "#CC79A7") +
+  geom_line(aes(y = prop_x2), colour = "#0072B2") +
+  labs(x = "Age, months", y = "Seropositivity") +
+  coord_cartesian(xlim = c(0.1,36)) +
+  scale_x_continuous(breaks =  c(6,12,15,18,24,36)) + #trans = "log2"
+  scale_y_continuous(limits = c(0,1), labels = scales::percent) +
+  theme_bw() +
+  theme(axis.text.x = element_text(size = 8, angle = 90)) 
+
+
+model_ppc1b <- model_ppc1 %>% rename(low = `2.5%`, up = `97.5%`) 
+
+figA <- ggplot() +
+  #geom_line(data = model_ppc1b, aes(x = ages, y = mean), color = "black") +  
+ # geom_point(data = model_ppc1b, aes(x = ages, y = mean), alpha = 0.6) +
+  #geom_pointrange(data = model_ppc1b, aes(x = ages, y = mean, ymin = low, ymax = up), alpha = 0.4) + 
+  geom_line(data = df1, aes(x = age, y = prop_m, colour = "Maternal IgG M(a)"), size = 1.0) +
+  geom_line(data = df1, aes(x = age, y = prop_x, colour = "Acquired IgG X(a)"), size = 1.0) +
+  #geom_line(data = df1, aes(x = age, y = prop_s), colour = "#E69F00") +
+  geom_line(data = df1, aes(x = age, y = prop_x2, colour = "Estimated seroprevalence π(a)"), size = 1.0) +
+  scale_x_continuous(breaks = c(0,6,9,12,18,24,30,36)) +
+  scale_y_continuous(limits = c(0,1), labels = scales::percent) +
+  scale_color_manual(name = "", 
+                     breaks = c("Maternal IgG M(a)", 
+                                "Acquired IgG X(a)", 
+                                "Estimated seroprevalence π(a)"), 
+                     values = c("Maternal IgG M(a)" = "#009E73", 
+                                "Acquired IgG X(a)" = "#CC79A7", 
+                                "Estimated seroprevalence π(a)" = "#0072B2"))+
+  labs(x = "", y = "Seroprevalence") +  
+       #subtitle = "Qualitative behavior of immunity with age\nMeasured seroprevalence - grey ribbon & line") +
+  theme_bw() +
+  theme(legend.position = "top", 
+        axis.text.x = element_text(size = 16), 
+        text = element_text(size = 16))
+figA
+
+figB <- df1 %>% ggplot(aes(x = age)) +
+  geom_line(aes(y = prop_s, colour = "Proportion susceptible S(a)"), size = 1.0) +
+  labs(x = "Age (months)", y = "Proportion seronegative") +
+  scale_color_manual(name = "", values = c("Proportion susceptible S(a)" = "#E69F00")) + 
+  coord_cartesian(xlim = c(0.1,36)) +
+  scale_x_continuous(breaks = c(0,6,9,12,18,24,30,36)) + 
+  scale_y_continuous(limits = c(0,1), labels = scales::percent) +
+  theme_bw() +
+  theme(legend.position = "top", axis.text.x = element_text(size = 16), 
+        text = element_text(size = 16))
+  
+figB
+
+fig <- figA / figB + plot_layout(heights = c(2,1)) #+
+  #plot_annotation(title = "Shigella - ipa proteins - model inferences")
+fig
+
+fig_out <- ggdraw(fig) + 
+  draw_label("B)", x = 0.02, y = 0.95, size = 16) + 
+  draw_label("C)", x = 0.02, y = 0.40, size = 16) 
+fig_out
+
+ggsave(fig, filename = "../output/figures/fig5-seroprev-model-fits-immunity-dynamics_updated.png", width = 10, height = 8, dpi = 300)
+```
+
+#### 2b-1) supplemental figure comparing model fit with observed data
+```{r}
+# plot seropositivity by months (supplemental figure)
+supp_obs <- serop2 %>% ggplot(aes(x = age_mo)) +
+  geom_pointrange(aes(y = prev, ymin = lower, ymax = upper), alpha = 0.4) +
+  geom_smooth(aes(y=prev), method = "loess", se = FALSE, color = "grey", linewidth = 1) + 
+  scale_y_continuous(limits = c(0,1), labels = scales::percent) +
+  labs(x = "Age, months", y = "Seroprevalence") + 
+       #title = "Estimated seroprevalence by month; smoothed") + #, 
+       #subtitle = "(formatted similar to 2b)") +
+  coord_cartesian(xlim = c(0,30)) + 
+  scale_x_continuous(breaks =  c(0,6,9,12,18,24, 30)) +
+  theme_bw() 
+supp_obs
+
+## supplemental figure of simulated data and fit
+# wrangle so in same format 
+p <-  model_ppc1b %>% mutate(mean = mean*100, 
+                                   up = up*100, 
+                                   low = low*100) 
+p_obs <- serop2 %>% rename(ages = age_mo) %>% mutate(prev = prev*100, 
+                                   up = upper*100, 
+                                   low = lower*100)
+supp_fig <- ggplot() +
+  geom_line(data = df5, aes(x = age, y = prop_x2*100), 
+            colour = "#0072B2") +  # this is the line with the simulated model fit
+  geom_point(data = p, aes(x = ages, y = mean), 
+             alpha = 0.6, 
+             color = "#0072B2") + # these are the individual points with simulated data from the model 
+  geom_ribbon(data = df5, aes(x = age, y = prop_x2*100, 
+                              ymin = low_ci*100, 
+                              ymax = up_ci*100),
+                  alpha = 0.2, 
+                  color = "#0072B2",
+              fill = "#0072B2", 
+                  width = 0.5) + # these are the error bars from the model 
+  geom_point(data = p_obs, aes(x = ages, y = prev), 
+             alpha = 0.6, 
+             color = "black") + # this is the empirical data 
+  geom_errorbar(data = p_obs, aes(x = ages, y = prev, ymin = low, ymax = up), 
+                alpha = 0.4, 
+                color = "black", 
+                width = 0.5) + # error bars from empirical data (from function)
+  labs(x = "", y = "Seroprevalence") +
+  theme_bw() +
+  scale_x_continuous(breaks = c(0,6,9,12,18,24,30,36)) +
+  scale_y_continuous(breaks = c(0, 25, 50, 75, 100), 
+                     labels = c("0%", "25%", "50%", "75%", "100%")) +
+  labs(x = "Age, months", y = "Seroprevalence") + 
+  coord_cartesian(ylim = c(0,100), xlim = c(0,30))
+
+supp_fig
+
+ggsave(supp_fig, filename = "../figures/suppfig2-simulated_observed_data.png", width = 8, height = 5, dpi = 300)
+```
+
+## 2c)  Plots posterior distribution of parameters::
+```{r}
+post <- as.array(fit)
+
+bayesplot::mcmc_areas(post, pars = c("gamma", "lambda"),
+                      prob = 0.9, prob_outer = 0.99,
+                      point_est = "median") +
+  theme_bw()
+
+color_scheme_set("blue")
+bayesplot::mcmc_dens(post, pars = c("gamma", "lambda"),
+                     transformations = list("gamma" = "log")) + 
+  theme_bw()
+
+color_scheme_set("red")
+bayesplot::mcmc_intervals(post, pars = c("gamma", "lambda")) +
+  theme_bw()
+
+head(s)
+
+# Panel C for figure 6
+# numbers are manually input from dataframe S
+# values are median not mean due to skew
+m1 <- color_scheme_set("viridisD")
+m1 <- bayesplot::mcmc_dens(post, pars = c("gamma")) + 
+  theme_bw() + 
+  geom_vline(aes(xintercept= 0.24998)) + 
+  geom_vline(aes(xintercept= 0.25048), linetype = "dashed") + 
+  geom_vline(aes(xintercept= 0.2495), linetype = "dashed") +
+  coord_cartesian(xlim = c(0.249, 0.251)) +
+  theme(text = element_text(size = 16)) + 
+  labs(x = "Maternal IgG Waning Rate (γ)") +  
+scale_x_continuous(breaks = c(0.249, 0.2495, 0.24998, 0.25048, 0.251), #these values are in the s dataframe for the 95th CI and MEDIAN values
+                       labels = c("0.249", "0.2495", "0.24998", "0.25048", "0.251")) 
+m1
+
+m2 <- color_scheme_set("pink")
+m2 <- bayesplot::mcmc_dens(post, pars = c("lambda")) + 
+  theme_bw()  +
+  geom_vline(aes(xintercept= 0.04063791	))  + # median (50% in df s)
+  geom_vline(aes(xintercept= 0.03397354), linetype = "dashed") + 
+  geom_vline(aes(xintercept= 0.04753212), linetype = "dashed")  +
+ coord_cartesian(xlim = c(0.025, 0.055)) +
+  theme(text = element_text(size = 16)) + 
+  labs(x = "Seroconversion Rate (λ)") +  
+    scale_x_continuous(breaks = c(0.025, 0.03397354, 0.04063791, 0.04753212, 0.055),
+                       labels = c("0.025", "0.034", "0.040", "0.048", "0.055"))
+m2
+
+ggsave(m1, filename = "../output/figures/fig5-seroprev-model-fits-gamma.png", width = 5, height =4, dpi = 300)
+ggsave(m2, filename = "../output/figures/fig5-seroprev-model-fits-lambda.png", width = 5, height = 4, dpi = 300)
+
+fig_m <- (m1 / plot_spacer() / m2 + plot_layout(heights = c(1, 0.2, 1))) 
+fig_m2 <- ggdraw(fig_m) +
+  draw_label("A)", x = -0.02, y = 1.02, hjust = 0, vjust = 1,size = 14) + 
+  theme(plot.margin = margin(10, 1, 1, 10)) +  # optional: adds a bit of left padding
+  coord_cartesian(clip = "off")    
+fig_m2
+
+fig_out
+
+
+final <- fig_m2 + fig_out + plot_layout(widths = c(1.5, 2.5))
+final
+ggsave(final, filename = "../figures/fig5-seroprev-model-fits-immunity-dynamics_updated.png", width = 13, height = 8, dpi = 300)
+```

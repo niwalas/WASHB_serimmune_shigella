@@ -1,0 +1,33 @@
+"","shigella_antigen","motif_family","epitope_motif","sequence","location","3 months","28 months","14 months"
+"1","Invasin IpaA",1,"[IV]HYHI","IHYHI","299 - 303",58.33,2.5,0
+"2","Invasin IpaA",1,"QPXXHX[NH][VI]","QPviHyHI","296 - 303  ",35.83,0,0
+"3","Invasin IpaA",1,"QPXXHYXI","QPviHYhI","296 - 303  ",29.17,2.5,0.83
+"4","Invasin IpaA",1,"KXXQPXIH","KtsQPvIH","293 - 300  ",20,16.67,8.33
+"5","Invasin IpaA",4,"FDN[RT]XX[DE]","FDNRvyD","315 - 321  ",30.83,2.5,0
+"6","Invasin IpaA",4,"TXXFDNR","nrvFDNR","312 - 318",3.33,2.5,0
+"7","Invasin IpaA",NA,"PX[MF]L[FY]K","PtFLYK","10 - 15",33.33,12.5,4.17
+"8","Invasin IpaA",NA,"[NT]XV[FY]DN","NrV[FY]DN","multiple repeats",21.67,0.83,0
+"9","Invasin IpaA",NA,"DNX[VI][FY]D","DNrVFD","multiple repeats",19.17,0,0
+"10","Invasin IpaA",NA,"P[GT]XX[SA]NXK","PTpgANeK","286 - 293",5,2.5,4.17
+"11","Invasin IpaB",3,"KXX[IV]SXXLN","KqiISthLN","482 - 490",55,17.5,4.17
+"12","Invasin IpaB",3,"KX[VI]ISXXL","KqIISthL","482 - 489",46.67,12.5,2.5
+"13","Invasin IpaB",6,"SKYQXE","SKYQvE","528 - 533",19.17,1.67,0
+"14","Invasin IpaB",6,"[TS]KYQXE","SKYQvE","528 - 533  ",19.17,1.67,0.83
+"15","Invasin IpaC",2,"LSXXX[LI]XDK","LSspdIsLqDK","247 - 258",48.33,10,2.5
+"16","Invasin IpaC",2,"LSXXXIX[ILV]XK",NA,"not provided due to multiple potential antigens",35,12.5,1.67
+"17","Invasin IpaC",5,"[TNS]G[IV]SXXK","SGISdqK","177 - 183",24.17,9.17,2.5
+"18","Invasin IpaC",5,"H[STD]GXSXXK","HSGiSdqK","176 - 183",17.5,7.5,0.83
+"19","Invasin IpaC",7,"TXF[LM]GK","TkFLGK","224 - 229",17.5,11.67,4.17
+"20","Invasin IpaC",7,"TXF[LVMI]GK","TkFLGK","224 - 229  ",17.5,12.5,4.17
+"21","Invasin IpaC",NA,"[AV]GXXLXLN","AGskLgLN","201 - 208",55.83,26.67,10.83
+"22","Invasin IpaC",NA,"R[YF]XSAXE","KkthsGIS","173 - 180",40.83,9.17,2.5
+"23","Invasin IpaC",NA,"KXAPXXIS","KlAPdnIS","231 - 238",40.83,28.33,15.83
+"24","Invasin IpaC",NA,"KXXXXGIS","RYaSAlE","298 - 304",25.83,20.83,6.67
+"25","Invasin IpaC",NA,"Q[TR]NX[TS]XK","QTNsStK","219 - 225",23.33,6.67,6.67
+"26","Invasin IpaC",NA,"YXX[IKV]STK","YtdISTK","13 - 19",15.83,2.5,1.67
+"27","Invasin IpaC",NA,"PLXV[AG][KR]","PLnVGK","41 - 46",15,2.5,5
+"28","Invasin IpaC",NA,"EIXNTK","EIqNTK","2 - 7",13.33,3.33,1.67
+"29","Invasin IpaC",NA,"NAQQ[IV]","NyQQI","32 - 36",24.17,14.17,2.5
+"30","Invasin IpaC",NA,"S[HD]X[GSD]IXXXK",NA,"not provided due to multiple potential antigens",21.67,7.5,0.83
+"31","Invasin IpaC",NA,"PD[NG][IV]S",NA,"not provided due to multiple potential antigens",1.67,0.83,0.83
+"32","Invasin IpaD",NA,"FXPXX[VCT]NG","FsPnnTNG","15 - 22  ",22.5,1.67,2.5

@@ -1,0 +1,210 @@
+---
+title: "1A-data_processing_epitope_level_summary"
+author: "Niko Walas"
+date: "2024-05-21"
+updated: "2024-09-12"
+output: html_document
+---
+# File description: 
+This file generates three main summary files for downstream analysis of Shigella sonnei Ipa proteins. It also generates summary files for all shigella antigens included in the serimmune panel for comparative analyses- though these files will not be used in the final manuscript analyses as the non-Ipa proteins are not entirely specific to Shigella. There are duplicate Ipa responses due to Shigella flexneri and Shigella sonnei strains included in the panel. Because the amino acid sequence of these proteins differed by 5-10 amino acids; Shigella sonnei was chosen as the representative species for Ipa proteins. 
+
+The three files that are output are: 
+
+*Protein Level*: 
+
+1. shigella_ipa_sum_prot.csv / .rds
+Description: summary file of Ipa proteins per sample; count of epitope hits in seroreactive regions for that protein, defined as a antigenic region in over 5 samples; whether the sample is seropositive for that protein (defined as having >=1 epitope hit in a seroreactive region); what seroreactive regions the corresponding epitope hits belong to; mean, max and sum IWAS scores in seroreactive regions per protein per sample
+
+
+*Pathogen Level*: 
+
+1. shigella_ipa_sum_path.csv / .rds
+Per sample; count of epitope hits across the 5 Ipa proteins; count of proteins positive to across the 5 Ipa proteins; seropositivity (defined as being >= 2 epitope hits across all 5 proteins; mean, max and sum IWAS scores in seroreactive regions (defined as present in 5 samples) across all 5 Ipa protein per sample.
+
+***Ammended 9/12/2024: a second seropositivity threshold was evaluated defined as >= 1 epitope hit in >=2 proteins. This variable is listed as sero_pos_2. This variable was coded based on if positive to >= 2 proteins (which were defined as >= 1 epitope hit). This was used in the sensitivity analysis for threshold determination; final output file is ssonnei_ipa_sum_path_sens.csv
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source(here::here("R/0-config.R"))
+```
+
+# Read in other proteins as a loop
+```{r}
+shig_ag <- read.csv(here("data/shig_iwas_aa_level_anon.csv"))
+```
+
+# 1)  Protein level summary 
+
+## A)  All shigella proteins in panel (NOT used in analyses; but here if need to export larger summary file)
+
+```{r}
+#Create a summary file that codes as positive or negative for a protein based on the following criteria
+#1. IWAS value above 90th percentile for that protein
+#2. Belonged to a contiguous sequence of >= 8 amino acids that fit criteria 1
+#3. At least one amino acid in the sequence as defined in criteria 2 appeared in 5 other children as a"hit" as defined in criteria 1; aka it belongs to a seroreactive region
+
+shig_sum <- shig_ag %>% group_by(SampleID, protein) %>% 
+  filter(!is.na(seroreactive_region)) %>% #only calculate these summary values for epitope hits in seroreactive regions
+  summarise(epitope_sum = if_else(all(is.na(epitope_no)), "0",
+                                  paste(unique(na.omit(epitope_no)), collapse = ","))) %>%
+  mutate(no_pos_ep = if_else(epitope_sum == 0, 0, str_count(epitope_sum, ",") + 1), 
+         sero_pos = if_else(no_pos_ep > 0, "POS", "NEG"), 
+         child = substr(SampleID, start = 1, stop=5), 
+         time_point = case_when(substr(SampleID, start = 6, stop = 6) == "B" ~ "1", 
+                                substr(SampleID, start = 6, stop = 6) == "M" ~ "2", 
+                                TRUE ~ "3"))
+
+#summarise seroreactive region positivity
+shig_seroreact <- shig_ag %>% ungroup() %>% 
+  group_by(SampleID, protein) %>% 
+  filter(!is.na(epitope_no), !is.na(seroreactive_region)) %>% 
+  summarise(sero_reactive_regions = paste(unique(na.omit(seroreactive_region)), collapse = ","))
+#merge into shig_sum file
+shig_sum <- merge(shig_sum, shig_seroreact, by = c("SampleID", "protein"), all=T)
+
+#Create a summary of mean IWAS scores per protein according to the following criteria
+#1. Average IWAS of all aa in sero-reactive regions per sample  
+#2. Final set should have one row per protein per sample and a mean IWAS. The mean IWAS is from the normalized value
+
+shig_IWAS <- shig_ag %>% filter(!is.na(seroreactive_region)) %>% 
+  group_by(SampleID, protein) %>% 
+  summarise(mean_IWAS = mean(IwasValue_norm), 
+            max_IWAS = max(IwasValue_norm), 
+            sum_IWAS = sum(IwasValue_norm))
+
+```
+
+## B) S. sonnei Ipa proteins (dataset that IS used moving forward)
+
+```{r}
+#these are the accession for S. flexneri proteins according to antigens_WASH document in washb-serimmune folder
+shig_sum_2 <- shig_sum %>%  filter(!str_detect(protein, "P18010") & 
+                                      !str_detect(protein, "P18011") & 
+                                      !str_detect(protein, "P18012") & 
+                                      !str_detect(protein, "P18013") & 
+                                      !str_detect(protein, "Q83RJ4") & 
+                                      !str_detect(protein, "A0A0H2") & 
+                                      !str_detect(protein, "A0A2S4") & 
+                                      !str_detect(protein, "A0A658")) 
+shig_sum_2 <- shig_sum_2 %>% filter(str_detect(protein, "ipa"))
+
+shig_IWAS_2 <- shig_IWAS %>% filter(!str_detect(protein, "P18010") & 
+                                      !str_detect(protein, "P18011") & 
+                                      !str_detect(protein, "P18012") & 
+                                      !str_detect(protein, "P18013") & 
+                                      !str_detect(protein, "Q83RJ4") & 
+                                      !str_detect(protein, "A0A0H2") & 
+                                      !str_detect(protein, "A0A2S4") & 
+                                      !str_detect(protein, "A0A658")) 
+shig_IWAS_2 <- shig_IWAS_2 %>% filter(str_detect(protein, "ipa"))
+
+#merge the two files and export
+ss_sum <- left_join(shig_sum_2, shig_IWAS_2, by = c("SampleID", "protein"))
+
+# export file 
+write.csv(ss_sum, here("data/shigella_ipa_sum_prot.csv"))
+write_rds(ss_sum, here("data/shigella_ipa_sum_prot.rds"))
+
+```
+
+# 2) Pathogen level summary 
+
+## A) S. sonnei Ipa proteins (what will be used moving forward)
+```{r}
+#Create a summary file that codes as positive or negative for THE PATHOGEN based on the following criteria
+#This sheet will be used for comparison to the motif summary 
+#ONLY IPA FOR S SONNEI VALUES BEFLOW
+
+#1. IWAS value above 90th percentile for that protein
+#2. Belonged to a contiguous sequence of >= 8 amino acids that fit criteria 1
+#3. At least one amino acid in the sequence as defined in criteria 2 appeared in 5 other children as a "hit" as defined in criteria 1
+
+shig_sum_3 <- shig_sum_2 %>% ungroup() %>% 
+  group_by(SampleID) %>% 
+  summarise(epitope_count = sum(no_pos_ep), 
+            protein_count = sum(sero_pos == "POS")) %>% 
+  mutate(sero_pos = ifelse(protein_count >= 1, "POS", "NEG"), # threshold: at least one protein with an epitope hit 
+         sero_pos_2 = ifelse(protein_count >= 2, "POS", "NEG"), # threshold: at least 2 epitope hit in at least 2 different proteins
+         sero_pos_3 = ifelse(epitope_count >= 2, "POS", "NEG"), # threshold: at least 2 epitope hits across all proteins
+         sero_pos_final = ifelse(epitope_count > 1, "POS", "NEG"), # final threshold: at least 2 epitope hits across all proteins
+         child = substr(SampleID, start = 1, stop=5), 
+         time_point = case_when(substr(SampleID, start = 6, stop = 6) == "B" ~ "1", 
+                                substr(SampleID, start = 6, stop = 6) == "M" ~ "2", 
+                                TRUE ~ "3"))
+
+#Create a summary of mean IWAS scores per protein according to the following criteria
+#1. Average IWAS of all aa in sero-reactive regions per sample  
+#2. Final set should have one row per protein per sample and a mean IWAS. The mean IWAS is from the normalized value
+
+shig_sum_4 <- shig_ag %>% filter(!str_detect(protein, "P18010") & 
+                                      !str_detect(protein, "P18011") & 
+                                      !str_detect(protein, "P18012") & 
+                                      !str_detect(protein, "P18013") & 
+                                      !str_detect(protein, "Q83RJ4") & 
+                                      !str_detect(protein, "A0A0H2") & 
+                                      !str_detect(protein, "A0A2S4") & 
+                                      !str_detect(protein, "A0A658") &
+                                   str_detect(protein, "ipa")) %>%
+  filter(!is.na(seroreactive_region)) %>% 
+  group_by(SampleID) %>% 
+  summarise(mean_IWAS = mean(IwasValue_norm), 
+            max_IWAS = max(IwasValue_norm), 
+            sum_IWAS = sum(IwasValue_norm)) %>% 
+  left_join(shig_sum_3, by = "SampleID")  %>%
+  mutate(visit = case_when(time_point == 1 ~ "Visit 1", 
+                         time_point == 2 ~ "Visit 2", 
+                         time_point == 3 ~ "Visit 3"))
+
+#add in sera scores
+#sera summary file pulled from rmd file 3-shigella_sonnei_motif_summary
+shig_sera <- read.csv(here("data/shigella_sera_score.csv"))
+
+#merge the sera score to the iwas values
+shig_sum_5 <- shig_sum_4 %>% select(-sero_pos, -sero_pos_2, -sero_pos_3)
+
+#export file 
+write.csv(shig_sum_4, here("data/shigella_ipa_sum_path_sensitivity.csv"))
+write.csv(shig_sum_5, here("data/shigella_ipa_sum_path.csv"))
+
+write_rds(shig_sum_4, here("data/shigella_ipa_sum_path_sensitivity.rds"))
+write_rds(shig_sum_5, here("data/shigella_ipa_sum_path.rds"))
+```
+
+## B) All shigella proteins (not used in current analysis pipline)
+
+```{r}
+#Create a summary file that codes as positive or negative for THE PATHOGEN based on the following criteria
+#This sheet will be used for comparison to the motif summary
+#INCLUDES ALL PROTEIN VALUES IN THE ANALYSIS 
+
+#1. IWAS value above 90th percentile for that protein
+#2. Belonged to a contiguous sequence of >= 8 amino acids that fit criteria 1
+#3. At least one amino acid in the sequence as defined in criteria 2 appeared in 5 other children as a"hit" as defined in criteria 1
+
+shig_sum_4 <- shig_ag %>%
+  group_by(SampleID) %>% 
+  summarise(epitope_sum = if_else(all(is.na(epitope_no)), "NA",
+                                  paste(unique(na.omit(epitope_no)), collapse = ","))) %>%
+  mutate(no_pos_ep = if_else(epitope_sum == "NA", 0, str_count(epitope_sum, ",") + 1), 
+         sero_pos = if_else(no_pos_ep > 0, "POS", "NEG"), 
+         child = substr(SampleID, start = 1, stop=5), 
+         time_point = case_when(substr(SampleID, start = 6, stop = 6) == "B" ~ "1", 
+                                substr(SampleID, start = 6, stop = 6) == "M" ~ "2", 
+                                TRUE ~ "3"))
+
+#Create a summary of mean IWAS scores per protein according to the following criteria
+#1. Average IWAS of all aa in sero-reactive regions per sample  
+#2. Final set should have one row per protein per sample and a mean IWAS. The mean IWAS is from the normalized value
+
+shig_IWAS_4 <- shig_ag %>% 
+  filter(!is.na(seroreactive_region)) %>% 
+  group_by(SampleID) %>% 
+  summarise(mean_IWAS = mean(IwasValue_norm), 
+            max_IWAS = max(IwasValue_norm), 
+            sum_IWAS = sum(IwasValue_norm)) %>% left_join(shig_sum_4 %>% select(SampleID, no_pos_ep))
+
+#export file 
+#writecsv(shig_sum_4, "../output/shigella_all_epitope_summary_2.csv")
+#writecsv(shig_IWAS_4, "../output/shigella_all_mms_IWAS_2.csv")
+```

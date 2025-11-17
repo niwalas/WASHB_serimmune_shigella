@@ -1,0 +1,87 @@
+---
+title: "6-shigella_fig1_update"
+author: "Niko Walas"
+date: "2024-12-12"
+output: html_document
+---
+
+File description: 
+
+This file generates the IWAS data for IpaA as included in the didactic figure 1 of Niko's dissertation chapter. It is further manually editted and formated in an adobe AI file. 
+
+# Read in and format files
+```{r preamble, echo = FALSE, message = FALSE}
+#----------------------------------
+# load the config file
+#----------------------------------
+library(here)
+library(patchwork)
+source("0-shig-config.r")
+# Read in files 
+files <- read.csv(here("data/shigella_ipaA_Q3YTQ5.csv"))
+df2b <- read.csv(here("data/shigella_ipaA_Q3YTQ5_reactivity_90Perc_8AA_sample_list.csv"))
+df5 <-read.csv(here("data/shigella_ipaA_Q3YTQ5_reactivity_90Perc_8AA_seroreactive_regions.csv")) 
+```
+
+# Cutoff - 90th percentile; epitope length - 8AA
+```{r}
+# extract labels 
+  antigenID <- stringr::str_extract(files, "(?:.*|.*s)[^\\.csv]")
+  pathogen <- str_extract(files, "[^_]+") 
+  Antigen <- str_extract(files, "(?<=_).*?(?=_)")
+  # define cutoffs
+  cutoff_90Perc <- as.numeric(quantile(files$IwasValue_norm, probs=0.9)) # 9
+  files <- files %>% mutate(visit = str_sub(SampleID, start = 6, end = 6)) 
+  
+  # PLOT 2: trace plot of iwas scores
+  p2 <- files %>% ggplot(aes(y = IwasValue_norm, x = AminoAcidPosition, 
+                             color = visit, group = SampleID)) + 
+    #geom_point(size = 0.0001) + 
+    geom_line(linewidth = 0.10) +
+    scale_color_manual(values = c("E"="#009E73", "M"="#56B4E9", "B"= "#E69F00"), 
+                       labels = c("E"="Visit 3", "M"="Visit 2", "B"="Visit 1"))  + 
+  annotate("text", x = 550, y = -0.3, 
+           label = "90th percentile" , color="black", 
+           size=3.5) + 
+    labs(x = "Amino acid position", 
+         y = "IgG enrichment value", 
+         title = "IpaA IgG tiling enrichment across the protein", 
+         color = NULL) +  
+    theme(title = element_text(size = 14), 
+          axis.title.y = element_text(size = 12), 
+          legend.title = element_blank()) + 
+    geom_hline(yintercept = cutoff_90Perc, col = "black", linetype = "dashed", size = 0.3) + 
+    coord_cartesian(xlim = c(1, 628)) + 
+    theme_bw() 
+  
+  p2 
+  
+  # PLOT 3: plot showing epitopes and seroreactive regions:
+  p3_df <- df2b %>% mutate(visit = gsub("[^A-Za-z]", "", SampleID) %>% substring(1,1)) %>% 
+    mutate(SampleID = reorder(SampleID, no_epitopes, FUN = mean)) 
+  p3_df$visit <- factor(p3_df$visit, levels = c("B", "M", "E"))
+  p3 <- p3_df %>% 
+    ggplot(aes(color = visit)) +
+    geom_point(aes(x = start, y = SampleID), size = 0.5) +
+    geom_point(aes(x = end, y = SampleID), size = 0.5) +
+    geom_segment(aes(x = start, xend = end, y = SampleID, yend = SampleID)) +
+    geom_rect(data = df5, inherit.aes = FALSE, aes(xmin = start, xmax = stop, ymin = -Inf, ymax = Inf), 
+              linewidth = 0.3, fill = "grey", alpha = 0.3) +
+    scale_color_manual(values = c("E"="#009E73", "M"="#56B4E9", "B"= "#E69F00"), labels = c("E"="Visit 3", "M"="Visit 2", "B"="Visit 1")) + 
+    labs(x = "Amino acid position", y = "Sample", title = "IpaA seroreactive regions (shaded)",
+         subtitle = "Epitopes defined as ≥8 consecutive AA with enrichment above cutoff", color = "Visit") +
+    theme_bw() +
+    theme(legend.title = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          panel.grid = element_blank(), 
+          title = element_text(size = 12))
+
+ plot_agg <- p2 / p3
+
+plot_agg
+ 
+ ggsave(here("figures/fig1_updated_sr_regions.png"), plot_agg, width = 6, height = 5, dpi = 500)
+ ggsave(here("figures/fig1_updated_sr_regions_plot2.png"), p2, width = 5, height = 2.5, dpi = 500)
+ ggsave(here("figures/fig1_updated_sr_regions_plot3.png"), p3, width = 5, height = 2.5, dpi = 500)
+```

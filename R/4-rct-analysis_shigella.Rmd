@@ -1,0 +1,1339 @@
+---
+title: "WASH Benefits RCT analysis- Shigella"
+author: "Ben Arnold (ben.arnold@ucsf.edu) and Niko Walas (nwalas@berkeley.edu)"
+date: "latest run: `r Sys.time()`"
+output: 
+  html_document:
+    theme: default
+    highlight: default
+    code_folding: hide
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+# Summary
+
+Investigates between-group comparisons based on summary measures for Shigella from the Serimmune assay
+The output export figure 2 for the manuscript
+
+```{r preamble, echo = FALSE, message = FALSE}
+#----------------------------------
+# load the config file
+#----------------------------------
+library(here)
+source(here("R/0-shig-config.r"))
+```
+
+# Load data
+
+Load processed data from Shigella pipeline. Each observation represents a single sample-protein.
+File for generating the protein and pathogen level summary files can be found in the file R/0-data_processing_epitope_summary.rmd
+
+```{r load data}
+#----------------------------------
+# load the protein level summary
+#----------------------------------
+dp1 <- read_csv(here("data","shigella_ipa_sum_prot.csv")) %>% select(-1) %>% rename(no_epitopes = no_pos_ep)
+
+#----------------------------------
+# load the pathogen level summary
+#----------------------------------
+dpath1 <- read_csv(here("data","shigella_ipa_sum_path.csv")) %>% select(-1) %>% 
+  rename(no_epitopes = epitope_count, 
+         no_proteins = protein_count)
+
+#----------------------------------
+# load metadata
+#----------------------------------
+metadata <- read_csv(here("data","washb-serimmune-metadata-230616.csv")) %>% pivot_longer(cols = 2:4, names_to = "timepoint", values_to = "SampleID")
+metadata2 <- metadata %>% select(SampleID, arm, sex, birthord_cat, momage, agedays_base, agedays_mid, agedays_end)
+
+#----------------------------------
+# load sera scores 
+#----------------------------------
+shig_sera <- read_csv(here("data/shigella_sera_score.csv"))
+
+#----------------------------------
+# create a merged data-frame for protein level 
+#----------------------------------
+dp2 <- dp1 %>%
+  left_join(metadata2, join_by(SampleID))
+
+# do some slight data processing for convenience
+dp2 <- dp2 %>%
+  mutate(tx = factor(arm, levels = c("Control", "Nutrition + WSH"),
+                     labels = c("Control","Intervention")), 
+         visit = factor(time_point, levels = c(1,2,3), 
+                        labels = c("Visit 1", "Visit 2", "Visit 3")),
+         protein = factor(protein)
+         ) %>%
+  # create cluster ID and Child ID 
+  # (do we not have child and cluster IDs in the data??  We should prob add them!!)
+  mutate(clusterid = paste0("cl",substr(SampleID,1,3)),
+         childid = paste0("ch",substr(SampleID,1,5)))
+
+#----------------------------------
+# create a merged data-frame for pathogen level (used in section: 
+# quantitative IWAS as meanIWAS was calculated from pooled raw tiling values)
+#----------------------------------
+dpath2 <- dpath1 %>%
+  left_join(metadata2, join_by(SampleID))
+
+# do some slight data processing for convenience
+dpath2 <- dpath2 %>%
+  mutate(tx = factor(arm, levels = c("Control", "Nutrition + WSH"),
+                     labels = c("Control","Intervention")), 
+         visit = factor(time_point, levels = c(1,2,3), 
+                        labels = c("Visit 1", "Visit 2", "Visit 3"))
+         ) %>%
+  # create cluster ID and Child ID 
+  # (do we not have child and cluster IDs in the data??  We should prob add them!!)
+  mutate(clusterid = paste0("cl",substr(SampleID,1,3)),
+         childid = paste0("ch",substr(SampleID,1,5)))
+
+##ADD sera score
+dpath2 <- left_join(dpath2, shig_sera %>% select(SampleID, sera))
+```
+
+# Summarise epitope hits on pathogen level  
+
+Compare groups by number of epitope hits, per pathogen
+
+```{r sum epitope hits by sample and pathogen}
+#----------------------------------
+# summarize number of epitope hits
+# by sample and pathogen
+#----------------------------------
+hits1 <- dp2 %>%
+  group_by(clusterid,childid,SampleID, tx, visit) %>%
+  summarize(epihits = sum(no_epitopes), 
+            .groups = "drop")
+```
+
+Examine the overall distribution of epitope hits by visit. There are not obvious differences. 
+
+```{r compare epitope hits}
+#----------------------------------
+# plot epitope hits by visit, group
+#----------------------------------
+pcols <- brewer.pal(n=3,"Dark2")[c(3,2)]
+set.seed(2325) # set seed for reproducible jitter on points
+hits1$visit <- as.character(hits1$visit)
+hits1 <- hits1 %>%
+  mutate(
+    visit_2 = case_when(
+      visit == "Visit 1" ~ "3 months",
+      visit == "Visit 2" ~ "14 months",
+      TRUE ~ "28 months"
+    ),
+    visit_2 = factor(visit_2, levels = c("3 months", "14 months", "28 months"))
+  )
+
+
+plot_hits_by_visit <- ggplot(hits1,
+                             aes(x = tx, y = epihits,  color = tx, fill = tx)) +
+  facet_grid(.~visit_2) + 
+  geom_jitter(height=0.05,width=0.1, alpha = 0.5) +
+  geom_boxplot(width = 0.3, outlier.shape = NA, fill = NA) +
+  scale_color_manual(values=pcols) +
+  scale_fill_manual(values=pcols) +
+  #scale_color_brewer(palette="Dark2") +
+  labs(y = "Number of epitope hits", x = "") +
+  theme_minimal() +
+  theme(legend.position = "none", 
+    text = element_text(size = 16),
+    strip.text = element_text(size = 14),
+    strip.placement = "bottom",   # Moves facet labels outside the plot area
+    strip.background = element_blank() 
+  )
+
+plot_hits_by_visit
+ggsave(here("output/figures/fig2_rct_n_epitopehits_summary.png"), plot_hits_by_visit, width = 8, height = 6)
+```
+
+Summary statistics from the distributions at each visit
+And then combined for visits 2 and 3 (post maternal IgG)
+```{r summarize outcomes at each visit, by group}
+table1(~epihits |  visit + tx, data=hits1, overall = FALSE)
+
+table1(~epihits |  tx, data=hits1 %>% filter(visit %in% c("Visit 2","Visit 3")), overall = FALSE)
+
+```
+Estimate the difference between groups in epitope hits, comparison using a Mann-Whitney U test (aka Wilcoxon rank sum)
+
+```{r compare groups permute wilcox}
+#----------------------------------
+# Wilcoxon test
+# permute at the cluster level
+#----------------------------------
+
+#----------------------------------
+# filter data to only >6m observations, per SAP
+#----------------------------------
+hits2 <- hits1 %>%
+  filter(visit %in% c("Visit 2","Visit 3"))
+
+#----------------------------------
+# estimate the Wilcoxon rank-sum test statistic
+# (the observed statistic)
+# the P-value is not quite right, because it
+# assumes all observations are independent
+# (does not account for repeated measures)
+#----------------------------------
+wilcox_obs <- wilcox.test(epihits ~ tx, data=hits2, conf.int = TRUE)
+
+# get a list of cluster ids and treatment labels
+txlabs <- hits2 %>% select(clusterid, tx) %>% distinct()
+
+#----------------------------------
+# permute cluster-level treatments
+# store the Wilcoxon rank sum test 
+# statistic for each permutation
+#----------------------------------
+# increase to 10,006 for publication quality P-values
+npermute <- 10006 
+permute <- foreach(ii = 1:npermute, .combine = rbind) %dopar% {
+  # set seed inside dopar loop for perfect reproducibility
+  set.seed(ii)
+  txpermute <- txlabs
+  txpermute$tx <- sample(txlabs$tx,replace=FALSE)
+  di <- hits2 %>% select(-tx) %>% left_join(txpermute,join_by(clusterid))
+  wilcoxi <- wilcox.test(epihits ~ tx, data=di)
+  return(data.frame(permutation = ii, stat = wilcoxi$statistic))
+}
+
+#----------------------------------
+# estimate a permutation P-value
+# note: the Wilcoxon rank sum test statistic 
+# has mean m * n / 2, where m and n are 
+# number of samples in each group. Here, since
+# we are permuting clusters it is not exactly equal to m * n / 2
+# so simply use the empirical mean of the permutation distribution
+# re-center the permutation distribution on zero to 
+# estimate a 2-sided P-value
+#----------------------------------
+permute2 <- permute %>%
+  mutate(stat0 = stat - mean(stat))
+
+# estimate the P-value as the proportion of 
+# permutation replicates equal to or more extreme than the observed 
+# test statistic. use absolute value since it is a symmetric distribution
+obs_stat <- wilcox_obs$statistic - mean(permute$stat)
+permute_p <- mean( abs(permute2$stat0) >= abs(obs_stat) )
+cat(paste0("\nPermutation P-value for Intervention vs Control (",format(npermute,big.mark=",")," permutations): ", sprintf("%1.2f",permute_p),"\n"))
+
+```
+
+As a quick diagnostic, always check the permutation distribution
+```{r plot permutation distribution}
+#----------------------------------
+# plot the permutation distribution
+# of the test statistic and the 
+# observed value
+#----------------------------------
+plot_permute <- ggplot(data=permute2, aes(x=stat0)) +
+  geom_histogram(bins=40, color = pcols[1], fill = pcols[1], alpha=0.7) +
+  geom_vline(xintercept=obs_stat, lty="dashed") +
+  labs(x = "Permutation distribution of Wilcoxon test statistic (centered)")+
+  theme_classic()
+
+plot_permute
+```
+
+# Seroprevalence
+
+Compare groups using seroprevalence. Define a sample as seropositive to a pathogen if it had ≥2 epitope hits to that pathogen.
+
+
+```{r seroprevalence}
+#----------------------------------
+# identify seropositive samples
+# as those with >= 2 epitope hits
+# to the pathogen
+#----------------------------------
+serop1 <- hits1 %>%
+  mutate(seropos = ifelse(epihits>=2,1,0))
+
+```
+
+Estimate mean and 95% CIs for seroprevalence at each visit
+bootstrap resample clusters to get the correct 95% CIs
+
+```{r estimate seroprev by visit and group}
+#----------------------------------
+# estimate mean seroprev by visit and
+# group. 
+#----------------------------------
+est_mu <- serop1 %>%
+  group_by(visit,tx) %>%
+  summarize(nobs = n(),
+            npos = sum(seropos), 
+            .groups = "drop") %>%
+  mutate(seroprev = npos/nobs)
+
+#----------------------------------
+# Bootstrap resample clusters
+# to get the correct 95% CIs that account
+# for repeated measures
+#----------------------------------
+set.seed(89326)
+# create a bootstrap sampling frame
+# resampling clusters with replacement
+breps <- 1000
+clids <- unique(serop1$clusterid)
+bsamp <- matrix(sample(clids, size = breps*length(clids),replace=TRUE),nrow=length(clids),ncol=breps)
+
+boot <- foreach(bi = 1:breps, .combine = rbind) %dopar% {
+  # draw the bootstrap dataset, 
+  # due to repeated measures in the seroprev dataset, this
+  # is likely a many-to-many join since clusters could be sampled
+  # more than once! (if not bootstrapping, would be one-to-many)
+  di <- left_join(data.frame(clusterid = bsamp[,bi]), serop1, 
+                  join_by(clusterid), relationship = "many-to-many") %>%
+    group_by(visit,tx) %>% 
+    summarize(nobs = n(),
+              npos = sum(seropos), 
+              .groups = "drop") %>%
+    mutate(seroprev = npos/nobs) %>%
+    mutate(brep=bi)
+  return(di[c("brep","visit","tx","seroprev")])
+}
+
+#----------------------------------
+# estimate percentile 95% CIs for
+# the seroprevalence by visit and group
+# identify the 2.5% and 97.5% tiles
+# of the bootstrap distribution
+#----------------------------------
+boot_ci <- boot %>%
+  group_by(visit, tx) %>%
+  mutate(min95 = quantile(seroprev,probs = 0.025),
+         max95 = quantile(seroprev,probs = 0.975)) %>%
+  slice(1) %>%
+  select(visit,tx,min95,max95)
+# join to the means
+est_mu_visit <- est_mu %>%
+  left_join(boot_ci, join_by(visit, tx))
+```
+
+```{r summarize seroprev by visit and tx}
+kbl(est_mu_visit, digits=3, caption = "Seroprevalence by visit and treatment group") %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+```{r plot seroprevalence by visit and group}
+#----------------------------------
+# plot seroprevalence by visit 
+# and group
+#----------------------------------
+pcols <- brewer.pal(3,"Dark2")[c(3,2)]
+wrapped_labels <- str_wrap(c("3 months", 
+                            "14 months", 
+                              "28 months"), width = 20) 
+plot_seroprev_visit <- ggplot(est_mu_visit, aes(x = visit, color = tx)) +
+  geom_errorbar(aes(ymin=min95,ymax=max95), position=position_nudge(x=c(-0.1,0.1)), width=0.1) +
+  geom_point(aes(y=seroprev), position=position_nudge(x=c(-0.1,0.1))) +
+  scale_color_manual(values=pcols) +
+  scale_y_continuous(breaks=seq(0,1,by=0.1),labels=seq(0,1,by=0.1)*100) +
+  scale_x_discrete(labels = wrapped_labels) + 
+  coord_cartesian(ylim = c(0,1)) +
+  labs(x="",y="IgG Seroprevalence (%)") +
+  theme_minimal() + 
+  theme(text = element_text(size = 16), 
+        legend.position = "none")
+
+plot_seroprev_visit
+
+ggsave(here("output/figures/fig2_rct_seroprev_summary.png"), plot_seroprev_visit, width = 8, height = 6)
+```
+
+Collapse data from visits 2 and 3 per the pre-specified analysis plan.
+Estimate means, 95% CIs, along with differences and ratios
+
+```{r group means, seroprevalence}
+#----------------------------------
+# limit to visits 2, 3
+#----------------------------------
+serop2 <- serop1 %>%
+  filter(visit %in% c("Visit 2","Visit 3"))
+#----------------------------------
+# estimate mean seroprev by 
+# group.  This and bootstrap below
+# is identical to estimation of means
+# above, but does not stratify by visit
+# (pools data over visits 2, 3)
+#----------------------------------
+ests_by_tx <- serop2 %>%
+  group_by(tx) %>%
+  summarize(nobs = n(),
+            npos = sum(seropos), 
+            .groups = "drop") %>%
+  mutate(seroprev = npos/nobs)
+
+```
+
+
+```{r est serop diff and ratio}
+#----------------------------------
+# estimate the difference in 
+# seroprevalence using a linear-binomial model
+# with robust SEs at the cluster level
+# save estimates, 95% CI, and P-value
+#----------------------------------
+fit_pd <- glm(seropos ~ tx, data=serop2, family=binomial(link="identity"))
+(fit_pd_rb <- coeftest(fit_pd, vcov. = vcovCL(fit_pd, cluster=serop2$clusterid)))
+pd <- fit_pd_rb[2,1]
+pd_se <- fit_pd_rb[2,2]
+pd_min95 <- pd - 1.96*pd_se
+pd_max95 <- pd + 1.96*pd_se
+pd_p <- fit_pd_rb[2,4]
+
+#----------------------------------
+# estimate robust 95% CIs for
+# seroprevalence by group from
+# the model fit. Equivalent to
+# bootstrap above (by visit), but faster
+#----------------------------------
+mu0 <- fit_pd_rb[1,1]
+mu0_se <- fit_pd_rb[1,2]
+mu0_min95 <- mu0 - 1.96*mu0_se
+mu0_max95 <- mu0 + 1.96*mu0_se
+mu1 <- fit_pd_rb[1,1]+fit_pd_rb[2,1]
+# SE of mu1= sqrt of variance of the linear combination of intercept + tx
+# the linear combination of coefficiencts is matrix-multiplied against
+# the robust var-covariance matrix estimated above
+mu1_se <- sqrt( t(c(1,1)) %*% vcovCL(fit_pd, cluster=serop2$clusterid) %*% c(1,1) )
+mu1_min95 <- mu1 - 1.96*mu1_se
+mu1_max95 <- mu1 + 1.96*mu1_se
+
+#----------------------------------
+# estimate the ratio in 
+# seroprevalence using a log-binomial model
+# with robust SEs at the cluster level
+#----------------------------------
+fit_pr <- glm(seropos ~ tx, data=serop2, family=binomial(link="log"))
+(fit_pr_rb <- coeftest(fit_pr, vcov. = vcovCL(fit_pr, cluster=serop2$clusterid)))
+logpr <- fit_pr_rb[2,1]
+logpr_se <- fit_pr_rb[2,2]
+pr <- exp(logpr)
+pr_min95 <- exp(logpr - 1.96*logpr_se)
+pr_max95 <- exp(logpr + 1.96*logpr_se)
+pr_p <- fit_pr_rb[2,4]
+
+
+#----------------------------------
+# combine results into a single
+# data frame
+#----------------------------------
+ests_by_tx2 <- ests_by_tx
+ests_by_tx2$seroprev_min95 <- c(mu0_min95,mu1_min95)
+ests_by_tx2$seroprev_max95 <- c(mu0_max95,mu1_max95)
+ests_by_tx2$pd <- c(NA,pd)
+ests_by_tx2$pd_min95 <- c(NA,pd_min95)
+ests_by_tx2$pd_max95 <- c(NA,pd_max95)
+ests_by_tx2$pd_p <- c(NA,pd_p)
+ests_by_tx2$pr <- c(NA,pr)
+ests_by_tx2$pr_min95 <- c(NA,pr_min95)
+ests_by_tx2$pr_max95 <- c(NA,pr_max95)
+ests_by_tx2$pr_p <- c(NA,pr_p)
+
+```
+
+
+```{r summarize seroprev by tx}
+#----------------------------------
+# create formatted versions
+#----------------------------------
+ests_by_tx3 <- ests_by_tx2 %>%
+  mutate(seroprev_print = paste0(sprintf("%1.1f",seroprev*100),"% (", 
+                                 sprintf("%1.1f",seroprev_min95*100),"%, ",
+                                 sprintf("%1.1f",seroprev_max95*100),"%)")
+  ) %>%
+  mutate(pd_print = paste0(sprintf("%1.1f",pd*100),"% (", 
+                                 sprintf("%1.1f",pd_min95*100),"%, ",
+                                 sprintf("%1.1f",pd_max95*100),"%)")
+  ) %>%
+  mutate(pr_print = paste0(sprintf("%1.1f",pr)," (", 
+                                 sprintf("%1.1f",pr_min95),", ",
+                                 sprintf("%1.1f",pr_max95),")")
+  ) %>%
+  select(tx,nobs,npos,seroprev_print,pd_print,pr_print,pr_p)
+
+# set formatted print vals to missing again for cleaner display
+ests_by_tx3$pd_print[ests_by_tx$tx=="Control"] <- NA
+ests_by_tx3$pr_print[ests_by_tx$tx=="Control"] <- NA
+
+options(knitr.kable.NA = '')
+kbl(ests_by_tx3, digits=3, caption = "Seroprevalence, comparison of groups. Estimates based on 60 children in each group measured twice at median ages 14 and 28 months. 95% CIs and P-values account for repeated measures within children and clusters using robust SEs", col.names = c("Group","N","N pos","Seroprevalence (95% CI)","PD (95% CI)","PR (95% CI)","P-value")) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+# Seroconversion 
+
+This analysis will follow quite closely to the seroprevalence analysis. Visit 2 data remain unchanged, as we assume that seropositivity at visit 1 is an incident seroconversion from birth. Visit 3 seroconversions are conditional on being seronegative at visit 2 for each child.  Only children who were seronegative at visit 2 are at risk for visit 3. Those who were seropositive at visit 2 are not included in the visit 3 measurements in this analysis.
+
+```{r identify seroconversions}
+#----------------------------------
+# identify incident seroconversions
+# do so within each pathogen
+# based on our definition of 
+# seroprevalence, above, ≥2 epitope hits
+#----------------------------------
+
+#----------------------------------
+# assume all children are at risk
+# of seroconversion for visit 2
+# if a child is seropositive at visit 2
+# that is exceedingly unlikely to 
+# reflect maternal IgG, and so
+# by definition they have seroconverted
+#
+# only children who are seronegative
+# at visit 2 are at risk for seroconversion
+# by visit 3.  Thus, visit 3 observations
+# must be restricted to only children 
+# who were seronegative at visit 2.
+#
+# finally, visit 1 observations are excluded
+# in the seroconversion analyses
+#----------------------------------
+
+seroc1 <- serop2 %>%
+  filter(visit != "Visit 1") %>%
+  # create an indicator within each child for at risk for visit 3
+  group_by(clusterid, childid) %>%
+  mutate(atrisk_visit3 = ifelse(visit == "Visit 2" & seropos == 0, 1,0), 
+         atrisk_visit3 = max(atrisk_visit3, na.rm = TRUE)
+         ) %>%
+  # drop visit 3 observations for children who are not at risk
+  filter(visit == "Visit 2" | (visit == "Visit 3" & atrisk_visit3 == 1) ) %>%
+  # create an indicator of seroconversion
+  # this is the same as seropositive at each visit, but rename for clarity
+  rename(seroconv = seropos)
+
+# table of the number of incident seroconversions
+# at each visit
+# 63 of 120 children seroconverted by visit 2 (53%)
+# 28 of 57 children seroconverted between visits 2 and 3 (49%)
+# that leaves 29 children who did not seroconvert (68%)
+table(seroc1$visit, seroc1$seroconv)
+
+```
+
+Collapse data from visits 2 and 3 per the pre-specified analysis plan.
+Estimate means, 95% CIs, along with differences and ratios
+
+This effectively repeats the seroprevalence analysis, but with the modified dataset we are only comparing incident seroconversions. 
+
+```{r group means seroconversion}
+
+#----------------------------------
+# estimate mean seroconversion by 
+# group.  This and bootstrap below
+# is identical to estimation of means
+# above, but does not stratify by visit
+# (pools data over visits 2, 3)
+#----------------------------------
+scrests_by_tx <- seroc1 %>%
+  group_by(tx) %>%
+  summarize(nobs = n(),
+            nsc = sum(seroconv), 
+            .groups = "drop") %>%
+  mutate(scr = nsc/nobs)
+
+```
+
+
+```{r est seroconversion diff and ratio}
+#----------------------------------
+# estimate the difference in 
+# seroconversion per child-year using a linear-binomial model
+# since seroconversion is an incident
+# outcome, we are estimating risk (cumulative incidence)
+# so call this "risk difference" or RD
+# with robust SEs at the cluster level
+# save estimates, 95% CI, and P-value
+#----------------------------------
+fit_rd <- glm(seroconv ~ tx, data=seroc1, family=binomial(link="identity"))
+(fit_rd_rb <- coeftest(fit_rd, vcov. = vcovCL(fit_rd, cluster=seroc1$clusterid)))
+rd <- fit_rd_rb[2,1]
+rd_se <- fit_rd_rb[2,2]
+rd_min95 <- rd - 1.96*rd_se
+rd_max95 <- rd + 1.96*rd_se
+rd_p <- fit_rd_rb[2,4]
+
+#----------------------------------
+# estimate robust 95% CIs for
+# seroconversion by group from
+# the model fit. 
+#----------------------------------
+mu0 <- fit_rd_rb[1,1]
+mu0_se <- fit_rd_rb[1,2]
+mu0_min95 <- mu0 - 1.96*mu0_se
+mu0_max95 <- mu0 + 1.96*mu0_se
+mu1 <- fit_rd_rb[1,1]+fit_rd_rb[2,1]
+# SE of mu1= sqrt of variance of the linear combination of intercept + tx
+# the linear combination of coefficiencts is matrix-multiplied against
+# the robust var-covariance matrix estimated above
+mu1_se <- sqrt( t(c(1,1)) %*% vcovCL(fit_rd, cluster=seroc1$clusterid) %*% c(1,1) )
+mu1_min95 <- mu1 - 1.96*mu1_se
+mu1_max95 <- mu1 + 1.96*mu1_se
+
+#----------------------------------
+# estimate the ratio in 
+# seroconversion rate using a log-binomial model
+# with robust SEs at the cluster level
+#
+# since seroconversion is cumulative
+# incidence, a measure of risk,
+# call this the risk ratio or RR
+#----------------------------------
+fit_rr <- glm(seroconv ~ tx, data=seroc1, family=binomial(link="log"))
+(fit_rr_rb <- coeftest(fit_rr, vcov. = vcovCL(fit_rr, cluster=seroc1$clusterid)))
+logrr <- fit_rr_rb[2,1]
+logrr_se <- fit_rr_rb[2,2]
+rr <- exp(logrr)
+rr_min95 <- exp(logrr - 1.96*logrr_se)
+rr_max95 <- exp(logrr + 1.96*logrr_se)
+rr_p <- fit_rr_rb[2,4]
+
+
+#----------------------------------
+# combine results into a single
+# data frame
+#----------------------------------
+scrests_by_tx2 <- scrests_by_tx
+scrests_by_tx2$scr_min95 <- c(mu0_min95,mu1_min95)
+scrests_by_tx2$scr_max95 <- c(mu0_max95,mu1_max95)
+scrests_by_tx2$rd <- c(NA,rd)
+scrests_by_tx2$rd_min95 <- c(NA,rd_min95)
+scrests_by_tx2$rd_max95 <- c(NA,rd_max95)
+scrests_by_tx2$rd_p <- c(NA,rd_p)
+scrests_by_tx2$rr <- c(NA,rr)
+scrests_by_tx2$rr_min95 <- c(NA,rr_min95)
+scrests_by_tx2$rr_max95 <- c(NA,rr_max95)
+scrests_by_tx2$rr_p <- c(NA,rr_p)
+```
+
+
+```{r summarize SCR by tx}
+#----------------------------------
+# create formatted versions
+#----------------------------------
+scrests_by_tx3 <- scrests_by_tx2 %>%
+  mutate(scr_print = paste0(sprintf("%1.1f",scr*100)," (", 
+                                 sprintf("%1.1f",scr_min95*100),", ",
+                                 sprintf("%1.1f",scr_max95*100),")")
+  ) %>%
+  mutate(rd_print = paste0(sprintf("%1.2f",rd)," (", 
+                                 sprintf("%1.2f",rd_min95),", ",
+                                 sprintf("%1.2f",rd_max95),")")
+  ) %>%
+  mutate(rr_print = paste0(sprintf("%1.1f",rr)," (", 
+                                 sprintf("%1.1f",rr_min95),", ",
+                                 sprintf("%1.1f",rr_max95),")")
+  ) %>%
+  select(tx,nobs,nsc,scr_print,rd_print,rr_print,rr_p)
+
+# set formatted print vals to missing again for cleaner display
+scrests_by_tx3$rd_print[scrests_by_tx3$tx=="Control"] <- NA
+scrests_by_tx3$rr_print[scrests_by_tx3$tx=="Control"] <- NA
+
+options(knitr.kable.NA = '')
+kbl(scrests_by_tx3, digits=3, caption = "Seroconversion per 100 children per year, comparison of groups. Estimates based on 60 children in each group measured up to two times at median ages 14 and 28 months. Children who seroconverted by their second visit at median age 14 months were not included in the analysis of incident serconversions between visits 2 and 3.  95% CIs and P-values account for repeated measures within children and clusters using robust SEs", col.names = c("Group","N at risk","N seroconverted","Seroconversion rate (95% CI)","RD (95% CI)","RR (95% CI)","P-value")) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+After the extra work of excluding children who were not at risk between visits 2 and 3, we get almost the identical answer in terms of the difference and ratio between groups!  Albeit with slightly less precision (wider 95% CIs) due to the slightly smaller sample size in each group. 
+
+If we find this is true in general, then presenting the differences in terms of seroprevalence might be simplest, with seroconversion in the appendix (or vice-versa).  Either is fine if inference is consistent. 
+
+# Quantitative IWAS
+## MeanIWAS
+Compare groups by meanIWAS, per pathogen
+```{r}
+#------------------------------
+mean1 <- dpath2 %>%
+  group_by(clusterid,childid,SampleID, tx, visit) %>%
+  summarize(mean_iwas = mean_IWAS, 
+            .groups = "drop")
+```
+
+Estimate mean and 95% CIs for meanIwas at each visit
+bootstrap resample clusters to get the correct 95% CIs
+
+```{r estimate mean_IWAS by visit and group}
+#----------------------------------
+# estimate average meanIWAs by visit and
+# group. 
+#----------------------------------
+est_mu <- mean1 %>%
+  group_by(visit,tx) %>%
+  summarize(nobs = n(),
+            mean_iwas = mean(mean_iwas), 
+            .groups = "drop") 
+
+#----------------------------------
+# Bootstrap resample clusters
+# to get the correct 95% CIs that account
+# for repeated measures
+#----------------------------------
+set.seed(89326)
+# create a bootstrap sampling frame
+# resampling clusters with replacement
+breps <- 1000
+clids <- unique(mean1$clusterid)
+bsamp <- matrix(sample(clids, size = breps*length(clids),replace=TRUE),nrow=length(clids),ncol=breps)
+
+boot <- foreach(bi = 1:breps, .combine = rbind) %dopar% {
+  # draw the bootstrap dataset, 
+  # due to repeated measures in the meaniwas dataset, this
+  # is likely a many-to-many join since clusters could be sampled
+  # more than once! (if not bootstrapping, would be one-to-many)
+  di <- left_join(data.frame(clusterid = bsamp[,bi]), mean1, 
+                  join_by(clusterid), relationship = "many-to-many") %>%
+    group_by(visit,tx) %>% 
+    summarize(nobs = n(),
+              mean_iwas = mean(mean_iwas), 
+              .groups = "drop") %>%
+    mutate(brep=bi)
+  return(di[c("brep","visit","tx","mean_iwas")])
+}
+
+#----------------------------------
+# estimate percentile 95% CIs for
+# the meanIWAS by visit and group
+# identify the 2.5% and 97.5% tiles
+# of the bootstrap distribution
+#----------------------------------
+boot_ci <- boot %>%
+  group_by(visit, tx) %>%
+  mutate(min95 = quantile(mean_iwas,probs = 0.025),
+         max95 = quantile(mean_iwas,probs = 0.975)) %>%
+  slice(1) %>%
+  select(visit,tx,min95,max95)
+# join to the means
+est_mu_visit <- est_mu %>%
+  left_join(boot_ci, join_by(visit, tx))
+```
+
+```{r summarize mean_IWAS by visit and tx}
+kbl(est_mu_visit, digits=3, caption = "MeanIWAS by visit and treatment group") %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+```{r plot meanIWAS by visit and group}
+#----------------------------------
+# plot mean_iwas by visit 
+# and group
+#----------------------------------
+pcols <- brewer.pal(3,"Dark2")[c(3,2)]
+plot_meaniwas_visit <- ggplot(est_mu_visit, aes(x = visit, color = tx)) +
+  geom_errorbar(aes(ymin=min95,ymax=max95), position=position_nudge(x=c(-0.1,0.1)), width=0.1) +
+  geom_point(aes(y=mean_iwas), position=position_nudge(x=c(-0.1,0.1))) +
+  scale_color_manual(values=pcols) +
+  scale_y_continuous(breaks=seq(-0.25,0.25,by=0.1),labels=seq(-0.25,0.25,by=0.1)*100) +
+  coord_cartesian(ylim = c(-0.25,0.25)) +
+  labs(x="",y="Mean IgG Enrichment") +
+  theme_minimal() + 
+  theme(text = element_text(size = 16), 
+        legend.position = c(0.85, 0.85), 
+        legend.title=element_blank()) +
+  scale_x_discrete(labels = wrapped_labels)
+
+plot_meaniwas_visit
+```
+
+Collapse data from visits 2 and 3 per the pre-specified analysis plan.
+Estimate means, 95% CIs, along with differences and ratios
+
+```{r group means, mean_iwas}
+#----------------------------------
+# limit to visits 2, 3
+#----------------------------------
+mean2 <- mean1 %>%
+  filter(visit %in% c("Visit 2","Visit 3"))
+#----------------------------------
+# estimate mean meaniwas by 
+# group.  This and bootstrap below
+# is identical to estimation of means
+# above, but does not stratify by visit
+# (pools data over visits 2, 3)
+#----------------------------------
+ests_by_tx <- mean2 %>%
+  group_by(tx) %>%
+  summarize(nobs = n(),
+            mean_iwas = mean(mean_iwas), 
+            .groups = "drop") 
+
+```
+
+
+```{r est meaniwas diff and ratio}
+#----------------------------------
+# estimate the difference in 
+# meanIWAS using a linear regression model
+# with robust SEs at the cluster level
+# save estimates, 95% CI, and P-value
+#----------------------------------
+fit_iwas_diff <- glm(mean_iwas ~ tx, data=mean2, family=gaussian(link="identity"))
+(fit_iwas_diff_rb <- coeftest(fit_iwas_diff, vcov. = vcovCL(fit_iwas_diff, cluster=mean2$clusterid)))
+iwas_diff <- fit_iwas_diff_rb[2,1]
+iwas_diff_se <- fit_iwas_diff_rb[2,2]
+iwas_diff_min95 <- iwas_diff - 1.96*iwas_diff_se
+iwas_diff_max95 <- iwas_diff + 1.96*iwas_diff_se
+iwas_diff_p <- fit_iwas_diff_rb[2,4]
+
+#----------------------------------
+# estimate robust 95% CIs for
+# mean_iwas by group from
+# the model fit. Equivalent to
+# bootstrap above (by visit), but faster
+#----------------------------------
+mu0 <- fit_iwas_diff_rb[1,1]
+mu0_se <- fit_iwas_diff_rb[1,2]
+mu0_min95 <- mu0 - 1.96*mu0_se
+mu0_max95 <- mu0 + 1.96*mu0_se
+mu1 <- fit_iwas_diff_rb[1,1]+fit_iwas_diff_rb[2,1]
+# SE of mu1= sqrt of variance of the linear combination of intercept + tx
+# the linear combination of coefficiencts is matrix-multiplied against
+# the robust var-covariance matrix estimated above
+mu1_se <- sqrt( t(c(1,1)) %*% vcovCL(fit_iwas_diff, cluster=mean2$clusterid) %*% c(1,1) )
+mu1_min95 <- mu1 - 1.96*mu1_se
+mu1_max95 <- mu1 + 1.96*mu1_se
+
+#----------------------------------
+# estimate the ratio in 
+# mean_iwas using a linear regression model
+# with robust SEs at the cluster level
+#----------------------------------
+fit_iwas_ratio <- glm(mean_iwas ~ tx, data=mean2, family=gaussian(link="identity"))
+(fit_iwas_ratio_rb <- coeftest(fit_iwas_ratio, vcov. = vcovCL(fit_iwas_ratio, cluster=mean2$clusterid)))
+logiwas_ratio <- fit_iwas_ratio_rb[2,1]
+logiwas_ratio_se <- fit_iwas_ratio_rb[2,2]
+iwas_ratio <- exp(logiwas_ratio)
+iwas_ratio_min95 <- exp(logiwas_ratio - 1.96*logiwas_ratio_se)
+iwas_ratio_max95 <- exp(logiwas_ratio + 1.96*logiwas_ratio_se)
+iwas_ratio_p <- fit_iwas_ratio_rb[2,4]
+
+
+#----------------------------------
+# combine results into a single
+# data frame
+#----------------------------------
+ests_by_tx2 <- ests_by_tx
+ests_by_tx2$mean_iwas_min95 <- c(mu0_min95,mu1_min95)
+ests_by_tx2$mean_iwas_max95 <- c(mu0_max95,mu1_max95)
+ests_by_tx2$iwas_diff <- c(NA,iwas_diff)
+ests_by_tx2$iwas_diff_min95 <- c(NA,iwas_diff_min95)
+ests_by_tx2$iwas_diff_max95 <- c(NA,iwas_diff_max95)
+ests_by_tx2$iwas_diff_p <- c(NA,iwas_diff_p)
+ests_by_tx2$iwas_ratio <- c(NA,iwas_ratio)
+ests_by_tx2$iwas_ratio_min95 <- c(NA,iwas_ratio_min95)
+ests_by_tx2$iwas_ratio_max95 <- c(NA,iwas_ratio_max95)
+ests_by_tx2$iwas_ratio_p <- c(NA,iwas_ratio_p)
+
+```
+
+
+```{r summarize mean_iwas by tx}
+#----------------------------------
+# create formatted versions
+#----------------------------------
+ests_by_tx3 <- ests_by_tx2 %>%
+  mutate(meaniwas_print = paste0(sprintf("%3.2f",mean_iwas), " (",
+                                 sprintf("%3.2f",mean_iwas_min95), ", ",
+                                 sprintf("%3.2f",mean_iwas_max95), ") ")
+  ) %>%
+  mutate(iwas_diff_print = paste0(sprintf("%3.2f",iwas_diff)," (", 
+                                 sprintf("%1.1f",iwas_diff_min95),", ",
+                                 sprintf("%1.1f",iwas_diff_max95),")")
+  ) %>%
+  mutate(iwas_ratio_print = paste0(sprintf("%3.2f",iwas_ratio)," (", 
+                                 sprintf("%3.2f",iwas_ratio_min95),", ",
+                                 sprintf("%3.2f",iwas_ratio_max95),")")
+  ) %>%
+  select(tx,nobs,meaniwas_print,iwas_diff_print,iwas_ratio_print,iwas_ratio_p)
+
+# set formatted print vals to missing again for cleaner display
+ests_by_tx3$iwas_diff_print[ests_by_tx$tx=="Control"] <- NA
+ests_by_tx3$iwas_ratio_print[ests_by_tx$tx=="Control"] <- NA
+
+options(knitr.kable.NA = '')
+kbl(ests_by_tx3, digits=3, caption = "meanIWAS, comparison of groups. Estimates based on 60 children in each group measured twice at median ages 14 and 28 months. 95% CIs and P-values account for repeated measures within children and clusters using robust SEs", col.names = c("Group","N","mean_IWAS (95% CI)","iwas_diff (95% CI)","iwas_ratio (95% CI)","P-value")) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+## MaxIWAS
+Compare groups by maxIWAS, per pathogen
+```{r}
+#------------------------------
+max1 <- dpath2 %>%
+  group_by(clusterid,childid,SampleID, tx, visit) %>%
+  summarize(max_iwas = max_IWAS, 
+            .groups = "drop")
+```
+
+Estimate mean and 95% CIs for maxIWAS at each visit
+bootstrap resample clusters to get the correct 95% CIs
+
+```{r estimate max_IWAS by visit and group}
+#----------------------------------
+# estimate average maxIWAs by visit and
+# group. 
+#----------------------------------
+est_mu <- max1 %>%
+  group_by(visit,tx) %>%
+  summarize(nobs = n(),
+            avg_max_iwas = mean(max_iwas), 
+            .groups = "drop") 
+
+#----------------------------------
+# Bootstrap resample clusters
+# to get the correct 95% CIs that account
+# for repeated measures
+#----------------------------------
+set.seed(89326)
+# create a bootstrap sampling frame
+# resampling clusters with replacement
+breps <- 1000
+clids <- unique(max1$clusterid)
+bsamp <- matrix(sample(clids, size = breps*length(clids),replace=TRUE),nrow=length(clids),ncol=breps)
+
+boot <- foreach(bi = 1:breps, .combine = rbind) %dopar% {
+  # draw the bootstrap dataset, 
+  # due to repeated measures in the max_iwas dataset, this
+  # is likely a many-to-many join since clusters could be sampled
+  # more than once! (if not bootstrapping, would be one-to-many)
+  di <- left_join(data.frame(clusterid = bsamp[,bi]), max1, 
+                  join_by(clusterid), relationship = "many-to-many") %>%
+    group_by(visit,tx) %>% 
+    summarize(nobs = n(),
+              avg_max_iwas = mean(max_iwas), 
+              .groups = "drop") %>%
+    mutate(brep=bi)
+  return(di[c("brep","visit","tx","avg_max_iwas")])
+}
+
+#----------------------------------
+# estimate percentile 95% CIs for
+# the avg_max_iwas by visit and group
+# identify the 2.5% and 97.5% tiles
+# of the bootstrap distribution
+#----------------------------------
+boot_ci <- boot %>%
+  group_by(visit, tx) %>%
+  mutate(min95 = quantile(avg_max_iwas,probs = 0.025),
+         max95 = quantile(avg_max_iwas,probs = 0.975)) %>%
+  slice(1) %>%
+  select(visit,tx,min95,max95)
+# join to the means
+est_mu_visit <- est_mu %>%
+  left_join(boot_ci, join_by(visit, tx))
+```
+
+```{r summarize max_IWAS by visit and tx}
+kbl(est_mu_visit, digits=3, caption = "MaxIWAS by visit and treatment group") %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+```{r plot max_IWAS by visit and group}
+#----------------------------------
+# plot max_iwas by visit 
+# and group
+#----------------------------------
+pcols <- brewer.pal(3,"Dark2")[c(3,2)]
+plot_maxiwas_visit <- ggplot(est_mu_visit, aes(x = visit, color = tx)) +
+  geom_errorbar(aes(ymin=min95,ymax=max95), position=position_nudge(x=c(-0.1,0.1)), width=0.1) +
+  geom_point(aes(y=avg_max_iwas), position=position_nudge(x=c(-0.1,0.1))) +
+  scale_color_manual(values=pcols) +
+  scale_y_continuous(breaks=seq(0,8,by=1),labels=seq(0,8,by=1)) +
+  coord_cartesian(ylim = c(0,8)) +
+  labs(x="",y="Max IgG Enrichment") +
+  theme_minimal() + 
+  theme(text = element_text(size = 16), 
+        legend.position = "none") +
+  scale_x_discrete(labels = wrapped_labels)
+
+plot_maxiwas_visit
+```
+
+Collapse data from visits 2 and 3 per the pre-specified analysis plan.
+Estimate means, 95% CIs, along with differences and ratios
+
+```{r group means, max_iwas}
+#----------------------------------
+# limit to visits 2, 3
+#----------------------------------
+max2 <- max1 %>%
+  filter(visit %in% c("Visit 2","Visit 3"))
+#----------------------------------
+# estimate mean maxiwas by 
+# group.  This and bootstrap below
+# is identical to estimation of means
+# above, but does not stratify by visit
+# (pools data over visits 2, 3)
+#----------------------------------
+ests_by_tx <- max2 %>%
+  group_by(tx) %>%
+  summarize(nobs = n(),
+            avg_max_iwas = mean(max_iwas), 
+            .groups = "drop") 
+
+```
+
+
+```{r est maxiwas diff and ratio}
+#----------------------------------
+# estimate the difference in 
+# maxIWAS using a linear regression model
+# with robust SEs at the cluster level
+# save estimates, 95% CI, and P-value
+#----------------------------------
+fit_iwas_diff <- glm(max_iwas ~ tx, data=max2, family=gaussian(link="identity"))
+(fit_iwas_diff_rb <- coeftest(fit_iwas_diff, vcov. = vcovCL(fit_iwas_diff, cluster=mean2$clusterid)))
+iwas_diff <- fit_iwas_diff_rb[2,1]
+iwas_diff_se <- fit_iwas_diff_rb[2,2]
+iwas_diff_min95 <- iwas_diff - 1.96*iwas_diff_se
+iwas_diff_max95 <- iwas_diff + 1.96*iwas_diff_se
+iwas_diff_p <- fit_iwas_diff_rb[2,4]
+
+#----------------------------------
+# estimate robust 95% CIs for
+# max_iwas by group from
+# the model fit. Equivalent to
+# bootstrap above (by visit), but faster
+#----------------------------------
+mu0 <- fit_iwas_diff_rb[1,1]
+mu0_se <- fit_iwas_diff_rb[1,2]
+mu0_min95 <- mu0 - 1.96*mu0_se
+mu0_max95 <- mu0 + 1.96*mu0_se
+mu1 <- fit_iwas_diff_rb[1,1]+fit_iwas_diff_rb[2,1]
+# SE of mu1= sqrt of variance of the linear combination of intercept + tx
+# the linear combination of coefficiencts is matrix-multiplied against
+# the robust var-covariance matrix estimated above
+mu1_se <- sqrt( t(c(1,1)) %*% vcovCL(fit_iwas_diff, cluster=mean2$clusterid) %*% c(1,1) )
+mu1_min95 <- mu1 - 1.96*mu1_se
+mu1_max95 <- mu1 + 1.96*mu1_se
+
+#----------------------------------
+# estimate the ratio in 
+# max_iwas using a linear regression model
+# with robust SEs at the cluster level
+#----------------------------------
+fit_iwas_ratio <- glm(max_iwas ~ tx, data=max2, family=gaussian(link="identity"))
+(fit_iwas_ratio_rb <- coeftest(fit_iwas_ratio, vcov. = vcovCL(fit_iwas_ratio, cluster=mean2$clusterid)))
+logiwas_ratio <- fit_iwas_ratio_rb[2,1]
+logiwas_ratio_se <- fit_iwas_ratio_rb[2,2]
+iwas_ratio <- exp(logiwas_ratio)
+iwas_ratio_min95 <- exp(logiwas_ratio - 1.96*logiwas_ratio_se)
+iwas_ratio_max95 <- exp(logiwas_ratio + 1.96*logiwas_ratio_se)
+iwas_ratio_p <- fit_iwas_ratio_rb[2,4]
+
+
+#----------------------------------
+# combine results into a single
+# data frame
+#----------------------------------
+ests_by_tx2 <- ests_by_tx
+ests_by_tx2$max_iwas_min95 <- c(mu0_min95,mu1_min95)
+ests_by_tx2$max_iwas_max95 <- c(mu0_max95,mu1_max95)
+ests_by_tx2$iwas_diff <- c(NA,iwas_diff)
+ests_by_tx2$iwas_diff_min95 <- c(NA,iwas_diff_min95)
+ests_by_tx2$iwas_diff_max95 <- c(NA,iwas_diff_max95)
+ests_by_tx2$iwas_diff_p <- c(NA,iwas_diff_p)
+ests_by_tx2$iwas_ratio <- c(NA,iwas_ratio)
+ests_by_tx2$iwas_ratio_min95 <- c(NA,iwas_ratio_min95)
+ests_by_tx2$iwas_ratio_max95 <- c(NA,iwas_ratio_max95)
+ests_by_tx2$iwas_ratio_p <- c(NA,iwas_ratio_p)
+```
+
+
+```{r summarize max_iwas by tx}
+#----------------------------------
+# create formatted versions
+#----------------------------------
+ests_by_tx3 <- ests_by_tx2 %>%
+  mutate(maxiwas_print = paste0(sprintf("%3.2f",avg_max_iwas), " (",
+                                 sprintf("%3.2f",max_iwas_min95), ", ",
+                                 sprintf("%3.2f",max_iwas_max95), ") ")
+  ) %>%
+  mutate(iwas_diff_print = paste0(sprintf("%3.2f",iwas_diff)," (", 
+                                 sprintf("%1.1f",iwas_diff_min95),", ",
+                                 sprintf("%1.1f",iwas_diff_max95),")")
+  ) %>%
+  mutate(iwas_ratio_print = paste0(sprintf("%3.2f",iwas_ratio)," (", 
+                                 sprintf("%3.2f",iwas_ratio_min95),", ",
+                                 sprintf("%3.2f",iwas_ratio_max95),")")
+  ) %>%
+  select(tx,nobs,maxiwas_print,iwas_diff_print,iwas_ratio_print,iwas_ratio_p)
+
+# set formatted print vals to missing again for cleaner display
+ests_by_tx3$iwas_diff_print[ests_by_tx$tx=="Control"] <- NA
+ests_by_tx3$iwas_ratio_print[ests_by_tx$tx=="Control"] <- NA
+
+options(knitr.kable.NA = '')
+kbl(ests_by_tx3, digits=3, caption = "maxIWAS, comparison of groups. Estimates based on 60 children in each group measured twice at median ages 14 and 28 months. 95% CIs and P-values account for repeated measures within children and clusters using robust SEs", col.names = c("Group","N","max_IWAS (95% CI)","iwas_diff (95% CI)","iwas_ratio (95% CI)","P-value")) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+## Sera score
+
+Compare groups by sera score, per pathogen
+```{r}
+#------------------------------
+sera <- dpath2 %>%
+  group_by(clusterid,childid,SampleID, tx, visit) %>%
+  summarize(sera = sera, 
+            .groups = "drop")
+```
+
+Estimate mean and 95% CIs for sera score at each visit
+bootstrap resample clusters to get the correct 95% CIs
+
+```{r estimate sera score by visit and group}
+#----------------------------------
+# estimate average sera score by visit and
+# group. 
+#----------------------------------
+est_mu <- sera %>%
+  group_by(visit,tx) %>%
+  summarize(nobs = n(),
+            mean_sera = mean(sera), 
+            .groups = "drop") 
+
+#----------------------------------
+# Bootstrap resample clusters
+# to get the correct 95% CIs that account
+# for repeated measures
+#----------------------------------
+set.seed(89326)
+# create a bootstrap sampling frame
+# resampling clusters with replacement
+breps <- 1000
+clids <- unique(sera$clusterid)
+bsamp <- matrix(sample(clids, size = breps*length(clids),replace=TRUE),nrow=length(clids),ncol=breps)
+
+boot <- foreach(bi = 1:breps, .combine = rbind) %dopar% {
+  # draw the bootstrap dataset, 
+  # due to repeated measures in the sera dataset, this
+  # is likely a many-to-many join since clusters could be sampled
+  # more than once! (if not bootstrapping, would be one-to-many)
+  di <- left_join(data.frame(clusterid = bsamp[,bi]), sera, 
+                  join_by(clusterid), relationship = "many-to-many") %>%
+    group_by(visit,tx) %>% 
+    summarize(nobs = n(),
+              mean_sera = mean(sera), 
+              .groups = "drop") %>%
+    mutate(brep=bi)
+  return(di[c("brep","visit","tx","mean_sera")])
+}
+
+#----------------------------------
+# estimate percentile 95% CIs for
+# the mean_sera by visit and group
+# identify the 2.5% and 97.5% tiles
+# of the bootstrap distribution
+#----------------------------------
+boot_ci <- boot %>%
+  group_by(visit, tx) %>%
+  mutate(min95 = quantile(mean_sera,probs = 0.025),
+         max95 = quantile(mean_sera,probs = 0.975)) %>%
+  slice(1) %>%
+  select(visit,tx,min95,max95)
+# join to the means
+est_mu_visit <- est_mu %>%
+  left_join(boot_ci, join_by(visit, tx))
+```
+
+```{r summarize mean sera by visit and tx}
+kbl(est_mu_visit, digits=3, caption = "Sera Score by visit and treatment group") %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+```{r plot mean sera score by visit and group}
+#----------------------------------
+# plot sera score by visit 
+# and group
+#----------------------------------
+pcols <- brewer.pal(3,"Dark2")[c(3,2)]
+plot_sera_visit <- ggplot(est_mu_visit, aes(x = visit, color = tx)) +
+  geom_errorbar(aes(ymin=min95,ymax=max95), position=position_nudge(x=c(-0.1,0.1)), width=0.1) +
+  geom_point(aes(y=mean_sera), position=position_nudge(x=c(-0.1,0.1))) +
+  scale_color_manual(values=pcols) +
+  scale_y_continuous(breaks=seq(0,350,by=50),labels=seq(0,350,by=50)) +
+  coord_cartesian(ylim = c(0,350)) +
+  labs(x="",y="IgG Sera Score") +
+  theme_minimal() + 
+  theme(text = element_text(size = 16), 
+        legend.position = "none") +
+  scale_x_discrete(labels = wrapped_labels)
+
+plot_sera_visit
+```
+
+
+Collapse data from visits 2 and 3 per the pre-specified analysis plan.
+Estimate means, 95% CIs, along with differences and ratios
+
+```{r group means, sera_score}
+#----------------------------------
+# limit to visits 2, 3
+#----------------------------------
+sera2 <- sera %>%
+  filter(visit %in% c("Visit 2","Visit 3"))
+#----------------------------------
+# estimate mean sera score by 
+# group.  This and bootstrap below
+# is identical to estimation of means
+# above, but does not stratify by visit
+# (pools data over visits 2, 3)
+#----------------------------------
+ests_by_tx <- sera2 %>%
+  group_by(tx) %>%
+  summarize(nobs = n(),
+            mean_sera = mean(sera), 
+            .groups = "drop") 
+
+```
+
+
+```{r est mean_sera diff and ratio}
+#----------------------------------
+# estimate the difference in 
+# sera score using a linear regression model
+# with robust SEs at the cluster level
+# save estimates, 95% CI, and P-value
+#----------------------------------
+fit_sera_diff <- glm(sera ~ tx, data=sera2, family=gaussian(link="identity"))
+(fit_sera_diff_rb <- coeftest(fit_sera_diff, vcov. = vcovCL(fit_sera_diff, cluster=sera2$clusterid)))
+sera_diff <- fit_sera_diff_rb[2,1]
+sera_diff_se <- fit_sera_diff_rb[2,2]
+sera_diff_min95 <- sera_diff - 1.96*sera_diff_se
+sera_diff_max95 <- sera_diff + 1.96*sera_diff_se
+sera_diff_p <- fit_sera_diff_rb[2,4]
+
+#----------------------------------
+# estimate robust 95% CIs for
+# sera score by group from
+# the model fit. Equivalent to
+# bootstrap above (by visit), but faster
+#----------------------------------
+mu0 <- fit_sera_diff_rb[1,1]
+mu0_se <- fit_sera_diff_rb[1,2]
+mu0_min95 <- mu0 - 1.96*mu0_se
+mu0_max95 <- mu0 + 1.96*mu0_se
+mu1 <- fit_sera_diff_rb[1,1]+fit_sera_diff_rb[2,1]
+# SE of mu1= sqrt of variance of the linear combination of intercept + tx
+# the linear combination of coefficiencts is matrix-multiplied against
+# the robust var-covariance matrix estimated above
+mu1_se <- sqrt( t(c(1,1)) %*% vcovCL(fit_sera_diff, cluster=sera2$clusterid) %*% c(1,1) )
+mu1_min95 <- mu1 - 1.96*mu1_se
+mu1_max95 <- mu1 + 1.96*mu1_se
+
+#----------------------------------
+# estimate the ratio in 
+# mean sera score using a linear regression model
+# with robust SEs at the cluster level
+#----------------------------------
+fit_sera_ratio <- glm(sera ~ tx, data=sera2, family=gaussian(link="identity"))
+(fit_sera_ratio_rb <- coeftest(fit_sera_ratio, vcov. = vcovCL(fit_sera_ratio, cluster=sera2$clusterid)))
+logsera_ratio <- fit_sera_ratio_rb[2,1]
+logsera_ratio_se <- fit_sera_ratio_rb[2,2]
+sera_ratio <- exp(logsera_ratio)
+sera_ratio_min95 <- exp(logsera_ratio - 1.96*logsera_ratio_se)
+sera_ratio_max95 <- exp(logsera_ratio + 1.96*logsera_ratio_se)
+sera_ratio_p <- fit_sera_ratio_rb[2,4]
+
+
+#----------------------------------
+# combine results into a single
+# data frame
+#----------------------------------
+ests_by_tx2 <- ests_by_tx
+ests_by_tx2$sera_min95 <- c(mu0_min95,mu1_min95)
+ests_by_tx2$sera_max95 <- c(mu0_max95,mu1_max95)
+ests_by_tx2$sera_diff <- c(NA,sera_diff)
+ests_by_tx2$sera_diff_min95 <- c(NA,sera_diff_min95)
+ests_by_tx2$sera_diff_max95 <- c(NA,sera_diff_max95)
+ests_by_tx2$sera_diff_p <- c(NA,sera_diff_p)
+ests_by_tx2$sera_ratio <- c(NA,sera_ratio)
+ests_by_tx2$sera_ratio_min95 <- c(NA,sera_ratio_min95)
+ests_by_tx2$sera_ratio_max95 <- c(NA,sera_ratio_max95)
+ests_by_tx2$sera_ratio_p <- c(NA,sera_ratio_p)
+
+```
+
+
+```{r summarize mean_sera by tx}
+#----------------------------------
+# create formatted versions
+#----------------------------------
+ests_by_tx3 <- ests_by_tx2 %>%
+  mutate(sera_print = paste0(sprintf("%3.2f",mean_sera), " (",
+                                 sprintf("%3.2f",sera_min95), ", ",
+                                 sprintf("%3.2f",sera_max95), ") ")
+  ) %>%
+  mutate(sera_diff_print = paste0(sprintf("%3.2f",sera_diff)," (", 
+                                 sprintf("%1.1f",sera_diff_min95),", ",
+                                 sprintf("%1.1f",sera_diff_max95),")")
+  ) %>%
+  mutate(sera_ratio_print = paste0(sprintf("%3.2f",sera_ratio)," (", 
+                                 sprintf("%3.2f",sera_ratio_min95),", ",
+                                 sprintf("%3.2f",sera_ratio_max95),")")
+  ) %>%
+  select(tx,nobs,sera_print,sera_diff_print,sera_ratio_print,sera_ratio_p)
+
+# set formatted print vals to missing again for cleaner display
+ests_by_tx3$sera_diff_print[ests_by_tx$tx=="Control"] <- NA
+ests_by_tx3$sera_ratio_print[ests_by_tx$tx=="Control"] <- NA
+
+options(knitr.kable.NA = '')
+kbl(ests_by_tx3, digits=3, caption = "Sera Score, comparison of groups. Estimates based on 60 children in each group measured twice at median ages 14 and 28 months. 95% CIs and P-values account for repeated measures within children and clusters using robust SEs", col.names = c("Group","N","mean_sera (95% CI)","sera_diff (95% CI)","sera_ratio (95% CI)","P-value")) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+# Format aggregate plot for manuscript
+```{r}
+# seroprevalence plot
+p1 <- plot_seroprev_visit + theme(plot.margin = margin(15, 10, 10, 15))
+
+# epitope hits plot
+p2 <- plot_hits_by_visit + theme(plot.margin = margin(10, 10, 10, 15))
+
+# mean IWAS
+p3 <- plot_meaniwas_visit + theme(plot.margin = margin(10, 10, 10, 30)) 
+p3
+# max IWAS
+p4 <- plot_maxiwas_visit + theme(plot.margin = margin(10, 10, 10, 30))
+
+# sera score
+p5 <- plot_sera_visit + theme(plot.margin = margin(10, 10, 10, 30))
+
+l_panel <- plot_grid(p3, p4, p5, ncol = 1)
+l_panel
+r_panel <- plot_grid(p1, p2, ncol = 1)
+# plot two on left and three smaller ones on right 
+fig2 <- plot_grid(r_panel, l_panel, align = 'hv', ncol = 2, rel_widths = c(1.25, 1)) 
+fig2 
+
+fig2_out <- ggdraw(fig2) + 
+  draw_label("A)", x = 0.02, y = 0.98, size = 16) + 
+  draw_label("B)", x = 0.02, y = 0.5, size = 16) + 
+  draw_label("C)", x = 0.58, y = 0.98, size = 16) +
+  draw_label("D)", x = 0.58, y = 0.65, size = 16) +
+  draw_label("E)", x = 0.58, y = 0.35, size = 16)
+
+ggsave(here("figures/fig2_rct_analysis.png"), fig2_out, width = 14, height = 10)
+```
+
+
+# Session Info
+```{r session info}
+sessionInfo()
+```
+
+
