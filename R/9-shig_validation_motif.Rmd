@@ -1,0 +1,210 @@
+---
+title: "9-shig_validation_motif"
+output: html_document
+date: "2026-04-10"
+---
+
+File description: 
+
+The purpose of this file was to validate the motif findings in our samples with known cases of Shigella discovered by Richelle Charles group. 
+
+Note: only Ipa protein motifs were used in this analysis
+
+```{r preamble, echo = FALSE, message = FALSE}
+#----------------------------------
+# load the config file
+#----------------------------------
+library(here)
+source("0-shig-config.r")
+library(epiR)
+library(openxlsx)
+pcols <- brewer.pal(n=3,"Dark2")[c(3,2)]
+visitcols <- c("#E69F00", "#56B4E9", "#009E73")
+seroconvcols <- c("orange", "gold", "darkblue", "grey", "red")
+  
+#----------------------------------
+# load the motif cleaned summary
+#----------------------------------
+df_motifs <- read_csv(here("data/shigella_motif_clean.csv")) 
+
+#----------------------------------
+# load the pathogen level summary
+#----------------------------------
+dpath1 <- read_csv(here("data","shigella_ipa_sum_path.csv")) %>% select(-1) %>% 
+  rename(no_epitopes = epitope_count, 
+         no_proteins = protein_count, 
+         sampleid = SampleID)
+
+
+#----------------------------------
+# load metadata
+#----------------------------------
+metadata <- read_csv(here(metadatadir,"washb-serimmune-metadata-230616.csv")) %>% pivot_longer(cols = 2:4, names_to = "timepoint", values_to = "SampleID")
+metadata2 <- metadata %>% select(SampleID, arm, sex, birthord_cat, momage, agedays_base, agedays_mid, agedays_end) %>% pivot_longer(6:8, names_to = "age_visit") %>% 
+  filter(str_detect(SampleID, "B1") & age_visit == "agedays_base" | 
+         str_detect(SampleID, "M1") & age_visit == "agedays_mid" |
+         str_detect(SampleID, "E1") & age_visit == "agedays_end") %>% 
+  rename(sampleid = SampleID, age_days = value)
+
+#----------------------------------
+# load sera scores 
+#----------------------------------
+shig_sera <- read_csv(here("data/shigella_sera_score.csv"))
+
+#----------------------------------
+# load known positive shigella data 
+#----------------------------------
+motif_knownpos <- read_excel(here("data/shigella_epitope_analysis_final.xlsx"), skip = 5 )
+```
+
+## Polish the known positive sample set 
+```{r}
+# Need a lot of polishing
+# 5) rename sensitivity
+motif_knownpos <- motif_knownpos[, 1:8] 
+motif_knownpos <- motif_knownpos %>%
+  rename(shigella_cohort_sensitivity = `Shigella Cohort Discovery Sensitivity`, 
+         day_2_sensitivity = D2, 
+         day_7_sensitivity = D7, 
+         day_30_sensitivity = D30,
+         example_family_motif = `Example Family Motif`, 
+         family = Family, 
+         antigen = Antigen, 
+         epitope = Epitope)
+
+motif_knownpos$shigella_cohort_sensitivity <- as.numeric(motif_knownpos$shigella_cohort_sensitivity)
+
+motif_knownpos <- motif_knownpos %>% arrange(desc(shigella_cohort_sensitivity)) 
+
+# filter to Ipa motif
+motif_knownpos <- motif_knownpos %>% filter(str_detect(antigen, "Ipa"))
+
+# 23 Ipa specific motifs
+```
+
+## Investigate motifs from IWAS seropositivity
+
+```{r}
+# merge the IWAS seropositivity calls 
+df_motifs <- df_motifs %>% left_join(dpath1 %>% select(sampleid, sero_pos_final), by = c("sampleid"))
+
+# summarise the number of positive motifs based on our IWAS seropositivity calls
+motif_summary <- df_motifs %>%
+  group_by(sampleid) %>%
+  summarise(
+    any_motif_pos = ifelse(any(motif_pos == "POS", na.rm = TRUE), "any_motif+", "any_motif-"),
+    motif_pos_count = sum(motif_pos == "POS", na.rm = TRUE),
+    sero_pos_final = first(sero_pos_final)
+  ) %>% mutate(sero_pos_final = ifelse(sero_pos_final == "POS", "IWAS IgG+", "IWAS IgG-"))
+
+
+# table of agreement 
+table(motif_summary$any_motif_pos, motif_summary$sero_pos_final)
+
+# plot of number of motifs positive by IWAS assignment
+ggplot(motif_summary %>% filter(sero_pos_final != 0), aes(x = motif_pos_count)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "black") +
+  facet_wrap(~ sero_pos_final) +
+  labs(
+    x = "Motif Positive Count",
+    y = "Number of Samples",
+    title = "Distribution of Motif Counts by Serostatus"
+  ) +
+  theme_minimal()
+```
+
+## Look at top motif hits from known positives
+```{r}
+# top 5 epitope hits
+top5 <- motif_knownpos %>%
+  slice_max(order_by = shigella_cohort_sensitivity, n = 5)
+top5
+
+# how many motifs for ipa proteins ony
+
+range(motif_knownpos$shigella_cohort_sensitivity)
+# some of these motifs have low sensitivity for shigella ?
+```
+
+## Overlap between detected motifs
+```{r}
+
+# Number of shared motifs
+shared_motifs <- intersect(motif_knownpos$example_family_motif, df_motifs$epitope_motif)
+shared_motifs
+
+# difference between the motifs detected in both
+unique_to_ourdata <- setdiff(df_motifs$epitope_motif, motif_knownpos$example_family_motif)
+unique_to_ourdata
+
+missed_from_ourdata <- setdiff(motif_knownpos$example_family_motif, df_motifs$epitope_motif)
+missed_from_ourdata
+```
+Remaining questions: 
+1. How was sensitivity determined? Statistical process for what was considered a motif and a hit?
+2. How to interpret low sensitivity motifs that are present
+3. How to interpret motifs present in both IWAS positive and IWAS negative samples
+
+# Alignment of IWAS categorization for each Ipa motif, and corresponding sensitivity
+```{r}
+t1 <- df_motifs %>% group_by(sero_pos_final, probable_shigella_antigen) %>% 
+  mutate(sero_pos_final = ifelse(sero_pos_final == "POS", "IWAS IgG+", "IWAS IgG-")) %>% 
+  filter(motif_pos == "POS") %>% 
+  count(epitope_motif) %>%
+  pivot_wider(
+    names_from = sero_pos_final,
+    values_from = n,
+    values_fill = 0
+  ) %>% 
+  mutate(n_with_motif = `IWAS IgG+` + `IWAS IgG-`, 
+         percent_motif_IWASpos = (`IWAS IgG+`/n_with_motif)*100) %>% 
+  left_join(motif_knownpos %>% select(example_family_motif, shigella_cohort_sensitivity, 
+                                      day_2_sensitivity, day_7_sensitivity, 
+                                      day_30_sensitivity) %>% 
+              mutate(epitope_motif = example_family_motif) %>% select(-example_family_motif), 
+            by = "epitope_motif") %>% 
+  mutate(antigen = case_when(str_detect(probable_shigella_antigen, "IpaA") ~ "IpaA", 
+                             str_detect(probable_shigella_antigen, "IpaB") ~ "IpaB",
+                              str_detect(probable_shigella_antigen, "IpaC") ~ "IpaC",
+                             str_detect(probable_shigella_antigen, "IpaD") ~ "IpaD",
+                             TRUE ~ "CHECK")) %>% 
+  ungroup() %>% 
+  select(-probable_shigella_antigen) %>% 
+  select(antigen, epitope_motif, `IWAS IgG+`, `IWAS IgG-`, n_with_motif, 
+         percent_motif_IWASpos, shigella_cohort_sensitivity, 
+         day_2_sensitivity, day_7_sensitivity, day_30_sensitivity)
+
+
+# table of motif sensitivity in our dataset
+kable(t1)
+```
+
+## How can I assess the alignment between our results and the known positive results? 
+```{r}
+names(t1)
+
+supp_tab6 <- t1 %>%select(antigen, epitope_motif, n_with_motif, percent_motif_IWASpos, day_30_sensitivity) %>%
+  mutate(prop_withmotif = round(n_with_motif/360*100, 2)) %>% 
+  select(-n_with_motif) %>% 
+  select(antigen, epitope_motif, prop_withmotif, percent_motif_IWASpos, day_30_sensitivity) %>% 
+           arrange(desc(day_30_sensitivity)) %>% 
+  mutate(day_30_sensitivity = round(day_30_sensitivity*100, 2), 
+         percent_motif_IWASpos = round(percent_motif_IWASpos, 2))
+
+supp_tab6
+
+write.xlsx(supp_tab6, "../output/supptable6.xlsx")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,297 @@
+---
+title: "8-shig_luminex_serimmune_comp"
+author: "Niko Walas"
+date: "2025-01-23"
+format:
+  html:
+    self-contained: true
+    toc: true
+    embed-resources: true
+    code-fold: true
+    link-external-newwindow: true
+execute: 
+  echo: true
+  warning: false
+  message: false
+---
+
+## File overview
+
+The purpose of this analysis, is to compare serimmune summary measures for Shigella, with those from the Serimmune and TAC assays (IgG and PCR). Important to note:
+
+1.  The TAC-PCR results for Shigella are only available for visit 2.
+
+The following comparisons are made below
+
+1) Agreement between PCR status and IgG status
+
+2) PCR status and IWAS summary measures
+    a) meanIWAS
+    b) maxIWAS
+    c) Number of epitope hits
+
+We conclude:
+
+1.  There is alignment between PCR status and IgG seropositivity. 89% of PCR+ samples seroconverted. A large proportion of seropositive samples did not have a corresponding PCR+ result. 
+
+
+```{r preamble, echo = FALSE, message = FALSE}
+#----------------------------------
+# load the config file
+#----------------------------------
+library(here)
+source("0-shig-config.r")
+library(epiR)
+pcols <- brewer.pal(n=3,"Dark2")[c(3,2)]
+visitcols <- c("#E69F00", "#56B4E9", "#009E73")
+seroconvcols <- c("orange", "gold", "darkblue", "grey", "red")
+  
+#----------------------------------
+# load the protein level summary
+#----------------------------------
+dp1 <- read_csv(here("data","shigella_ipa_sum_prot.csv")) %>% select(-1) %>% rename(no_epitopes = no_pos_ep)
+
+#----------------------------------
+# load the pathogen level summary
+#----------------------------------
+dpath1 <- read_csv(here("data","shigella_ipa_sum_path.csv")) %>% select(-1) %>% 
+  rename(no_epitopes = epitope_count, 
+         no_proteins = protein_count, 
+         sampleid = SampleID)
+
+#----------------------------------
+# load metadata
+#----------------------------------
+metadata <- read_csv(here("data/washb-serimmune-metadata-230616.csv")) %>% pivot_longer(cols = 2:4, names_to = "timepoint", values_to = "SampleID")
+metadata2 <- metadata %>% select(SampleID, arm, sex, birthord_cat, momage, agedays_base, agedays_mid, agedays_end) %>% pivot_longer(6:8, names_to = "age_visit") %>% 
+  filter(str_detect(SampleID, "B1") & age_visit == "agedays_base" | 
+         str_detect(SampleID, "M1") & age_visit == "agedays_mid" |
+         str_detect(SampleID, "E1") & age_visit == "agedays_end") %>% 
+  rename(sampleid = SampleID, age_days = value)
+
+#----------------------------------
+# load TAC-PCR
+# This file was generated for serimmune in the sample-selection folder on box
+# /Users/nwalas/Library/CloudStorage/Box-Box/washb-serimmune/sample-selection/rmd/washb-serimmune-sample-selection-v4.0
+# Tac data was only run at visit two
+#----------------------------------
+shig_tac <- read_csv(here("data/washb-serimmune-metadata-230616.csv")) %>% select(sampleid_mid, arm, agedays_mid, Shig_EIEC) %>% 
+  rename(sampleid = sampleid_mid) %>% 
+  mutate(shig_tac = ifelse(Shig_EIEC == "Yes", "PCR+", "PCR-")) %>% select(-Shig_EIEC)
+
+```
+
+DF creation
+
+```{r}
+#----------------------------------
+# create a merged data-frames for comparisons below
+#---------------------------------
+df <- dpath1 %>% full_join(shig_tac, by = "sampleid")
+# add in age in day
+df <- df %>% full_join(metadata2 %>% select(sampleid, age_visit, age_days), 
+                       by = c("sampleid")) %>% 
+  select(-agedays_mid) %>% # reduce redundancy
+  arrange(sampleid, visit) %>% 
+  mutate(sero = ifelse(sero_pos_final == "POS", "IgG+", "IgG-"))
+
+# need to fill the NA vaules for pcr with the value from the visit 2 for the plot
+df <- df %>% group_by(child) %>% 
+  mutate(shig_tac2 = coalesce(shig_tac, first(na.omit(shig_tac))), 
+         sero_visit2 = sero[time_point == 2][1], 
+         arm2 = coalesce(arm, first(na.omit(arm))))
+
+# assign levels 
+p_df <- df %>% group_by(child) %>% 
+  mutate(serimmune_pos_afterv2 = any(sero == "IgG+" & visit %in% c("Visit 2", "Visit 3"), na.rm = TRUE), 
+         serimmune_pos_afterv2 = ifelse(serimmune_pos_afterv2 == "TRUE", "IgG+", "IgG-"))
+
+p_df <- p_df %>% 
+  mutate(arm2 = factor(arm2, levels = c("Control", "Nutrition + WSH")),
+         sero = factor(sero, levels = c("IgG+", "IgG-")), 
+         serimmune_pos_afterv2 = factor(serimmune_pos_afterv2, levels= c("IgG+", "IgG-")),
+        shig_tac = factor(shig_tac, levels = c("PCR+", "PCR-")), 
+        shig_tac2 = factor(shig_tac2, levels = c("PCR+", "PCR-"))
+        )
+
+# add in timepoint seroconversions for the 3 IgG measures
+p_df <- p_df %>% group_by(child) %>%
+  arrange(child,time_point) %>%
+  mutate(serimmune_seropos_lead = lead(sero),
+         seroconv_serimmune = case_when(
+           serimmune_seropos_lead  == "IgG+" & sero == "IgG-" ~ "Seroconversion",
+           serimmune_seropos_lead  == "IgG-" & sero == "IgG+" ~ "Seroreversion",
+           serimmune_seropos_lead  == "IgG+" & sero== "IgG+" ~ "Seropositive",
+           serimmune_seropos_lead  == "IgG-" & sero == "IgG-" ~ "Seronegative"
+        
+           )
+         
+         )
+         
+# assign levels 
+p_df <- p_df %>% mutate(
+  seroconv_serimmune = factor(seroconv_serimmune, 
+                              levels = c("Seropositive","Seroconversion", 
+                                         "Seroreversion", "Seronegative", NA))
+
+)
+```
+
+# PCR vs Serimmune
+
+## 1) PCR vs Serimmune IWAS
+
+### a) Table of agreement
+
+```{r}
+
+t1<- table(p_df$shig_tac, p_df$serimmune_pos_afterv2)
+
+cat("Shigella PCR vs Serimmune IWAS, visit 2\n\n")
+t1 
+
+# Kappa calculation 
+k_out <- epiR::epi.kappa(t1)
+k_est <- k_out$kappa$est
+kappa_lci  <- k_out$kappa$lower
+kappa_uci  <- k_out$kappa$upper
+
+# Agreement
+agree_est <- k_out$prop.agree$obs
+agree_ci <- binom.test(sum(diag(t1)), sum(t1))$conf.int
+agree_lci <- agree_ci[1]
+agree_uci <- agree_ci[2]
+
+agreement <- paste0(round(agree_est*100, 2), " (", round(agree_lci*100, 2), ", ", round(agree_uci*100, 2), ")")
+kappa <-  paste0(round(k_est, 2), " (", round(kappa_lci, 2), ", ", round(kappa_uci, 2), ")")
+
+a_k <- data.frame(agreement, kappa) %>% pivot_longer(1:2, names_to = " ")
+cat("Percent agreement and kappa- PCR and Serimmune IgG, visit 2\n\n")
+a_k
+
+pcr_iwas_agreement <- a_k 
+```
+### b) Number epitope hits (all Ipa proteins)
+
+```{r}
+## summary of epitope hits by age
+#| label: plot epitope hits for shigella 
+
+# Plot 1: Visit 2 ONLY 
+plot_noep_shigella_v2 <- ggplot(data=p_df %>% filter(visit == "Visit 2"), 
+                                aes(x = no_epitopes, 
+                                    color=factor(arm2), 
+                                    fill = factor(arm2))) + 
+  geom_bar(alpha = 0.5, position = "dodge") +
+  facet_grid(serimmune_pos_afterv2~ ~ shig_tac2) +
+  scale_color_manual(values=pcols) +
+  scale_fill_manual(values=pcols) +
+  labs(x = "Number of epitope hits",y = "Number of children", 
+       title = " Individual child epitope hits",
+       subtitle = "by PCR infection status (visit 2) and seropositivity status (visit 2 and3)", 
+       color = NULL, 
+       fill = NULL) + theme_classic() + 
+  theme(panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6))
+
+plot_noep_shigella_v2
+
+# Plot 2: Visit 2, 3 (to exclude maternal antibodies)
+plot_noep_shigella_v23 <- ggplot(data=p_df %>% filter(visit != "Visit 1"), aes(x=age_days, y = no_epitopes, 
+                                             group=child, 
+                                             color=factor(seroconv_serimmune))) + 
+  geom_line(alpha = 0.5) +
+  geom_hline(yintercept = 2, linetype = "dashed", color = "darkgrey") +
+  facet_grid(serimmune_pos_afterv2~ ~ shig_tac2) +
+  #geom_point() + 
+  scale_color_manual(values=seroconvcols) +
+  labs(x = "Age (days)",y = "Number of epitope hits", 
+       title = " Individual child epitope hits",
+       subtitle = "by PCR infection status (visit 2) and seropositivity status (visit 2 and 3)", 
+       color = NULL) + theme_classic() + 
+  theme(panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6)) +
+  coord_cartesian(ylim = c(0, 15))
+
+
+plot_noep_shigella_v23
+ggsave("../figures/pcr_iwas_agreement_epitopehits.png", plot_noep_shigella_v23, width = 8, height =5)
+```
+
+
+### c) meanIWAS 
+
+Important to note: the assignment of PCR/Serimmune(IgG) agreement is assigned only at the visit 2 timepoint
+This is the meanIWAS across all five Ipa proteins used in the seropositivity assignment
+
+```{r}
+## summary of meanIWAS by age
+#| label: plot meanIWAS for shigella 
+         
+# Plot 1: Visit 2 ONLY
+plot_meaniwas_shigella_v2 <- ggplot(data=p_df %>% filter(visit == "Visit 2"), 
+                                aes(x = mean_IWAS, 
+                                    color=factor(arm2), 
+                                    fill = factor(arm2))) + 
+  geom_histogram(alpha = 0.5, position = "dodge") +
+  facet_grid(serimmune_pos_afterv2 ~ shig_tac2) +
+  #geom_point() + 
+  scale_color_manual(values=pcols) +
+  scale_fill_manual(values=pcols) +
+  labs(x = "meanIWAS",y = "Number of children", 
+       title = " Individual child meanIWAS",
+       subtitle = "by PCR infection status (visit 2) and seropositivity status (visit 2 and 3)",  
+       color = NULL, 
+       fill = NULL) + theme_classic() + 
+  theme(panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6))
+
+plot_meaniwas_shigella_v2
+
+
+# Plot 2: Visits 2, 3 (to exclude maternal contribution)
+plot_meaniwas_shigella_v23 <- ggplot(data=p_df %>% filter(visit != "Visit 1"), 
+                                     aes(x=age_days, y = mean_IWAS, 
+                                             group=child, 
+                                             color=seroconv_serimmune)) + 
+  geom_line(alpha = 0.5) +
+  facet_grid(serimmune_pos_afterv2 ~ shig_tac2) +
+  scale_color_manual(values=seroconvcols) +
+  labs(x = "Age (days)",y = "meanIWAS", 
+       title = " Individual child meanIWAS",
+       subtitle = "by PCR infection status (visit 2) and seropositivity status (visit 2 and 3)", 
+       color = NULL) + theme_classic() + 
+  theme(panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6))
+
+
+plot_meaniwas_shigella_v23
+ggsave("../figures/meaniwas_pcr_visit2.png", plot_meaniwas_shigella_v23,  width = 8, height =5)
+```
+
+### d) maxIWAS (across all Ipa proteins)
+
+```{r}
+## summary of maxIWAS by age
+#| label: plot maxIWAS for shigella
+
+# Plot 1: Visits 2, 3 (to exclude maternal contribution)
+plot_maxiwas_shigella_v23 <- ggplot(data=p_df %>% filter(visit != "Visit 1"), 
+                                    aes(x=age_days, y = max_IWAS, 
+                                             group=child, 
+                                             color=factor(seroconv_serimmune))) + 
+  geom_line(alpha = 0.5) +
+  facet_grid(serimmune_pos_afterv2 ~ shig_tac2) +
+  #geom_point() + 
+  scale_color_manual(values=seroconvcols) +
+  labs(x = "Age (days)",y = "maxIWAS", 
+       title = " Individual child maxIWAS",
+       subtitle = "by PCR infection status (visit 2) and seropositivity status (visit 2 and 3)", 
+       color = NULL) + theme_classic() + 
+  theme(panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6))
+
+
+
+plot_maxiwas_shigella_v23
+ggsave("../figures/maxiwas_pcr_visit2.png", plot_maxiwas_shigella_v23,  width = 8, height =5)
+
+```
+
+
+
