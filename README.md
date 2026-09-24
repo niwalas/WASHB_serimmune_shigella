@@ -12,3 +12,5 @@ All notebooks are written in R markdown, and are located in the R subdirectory (
 
 De-identifed data from the three countries is provided in the OSF repository. Each dataset is provided in .csv and .rds format. 
 
+## Publication
+Walas, Nikolina, Everlyn Kamau, Minlu Zhang, et al. “Effects of Improved Water, Sanitation, Handwashing, and Nutrition on Early Childhood IgG Immune Repertoire Development against Shigella and Enteroinvasive Escherichia Coli (EIEC).” mSphere, July 15, 2026, e00339-26. https://doi.org/10.1128/msphere.00339-26.
