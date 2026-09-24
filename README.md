@@ -2,8 +2,7 @@
 IgG immune repetoire and age based immune development against Shigella. Created by Nikolina Walas and contributed to by Everlyn Kamau and Ben Arnold
 
 ## Description 
-This repository contains computational notebooks and figure generation to support the paper: 
-XX
+This repository contains computational notebooks and figure generation to support the paper: Effects of Improved Water, Sanitation, Handwashing, and Nutrition on Early Childhood IgG Immune Repertoire Development against Shigella and Enteroinvasive Escherichia Coli (EIEC). See details in publication tab.
 
 The repository includes all files needed to replicate the analyses, and the repository is cross-referenced with the Open Science Framework (https://osf.io/r4av7). For questions, please write Nikolina Walas (nikolina.walas@ucsf.edu) or Ben Arnold at UCSF (bfarnold@gmail.com)
 
